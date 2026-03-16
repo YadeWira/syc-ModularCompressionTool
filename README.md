@@ -25,9 +25,11 @@ Input → xprecomp → srep → zpaqfranz → output.syc
 - **Multi-part archives** — split output into fixed-size chunks
 - **Encryption** — AES-256-GCM or ChaCha20-Poly1305 with PBKDF2 key derivation
 - **Hashing** — optional CRC32 and MD5 per file
+- **Archive comments** — embed a text comment with `--comment`
 - **Real-time progress** — per-step percentage, MB/s speed, and elapsed time
 - **GUI wrapper** (`sycg`) — tkinter-based progress window with theme and language support
-- **InnoSetup ready** — integrate with installers via `sycg` flags
+- **Partial extraction** — extract specific files with `-f` (flat) or `-ff` (full path)
+- **InnoSetup ready** — integrate with installers via `sycg` and `--innosetup` flags
 - **Cross-architecture** — builds for x86 and x64 via `build.bat`
 
 ---
@@ -59,6 +61,23 @@ sycg a backup.syc myfolder -m xpszx -tar
 | [Building from Source](docs/building.md) | Using `build.bat` for x86/x64 |
 | [Language Files (.syl)](docs/language-files.md) | Localizing the GUI |
 | [Examples & Recipes](docs/examples.md) | Common use cases and patterns |
+
+## Changelog
+
+### v0.0.2
+- Added `--comment` flag to embed text comments in archives
+- Added `syc ls` command — PowerShell-style directory listing with folder filter
+- Added `syc m` command — list all compression methods from syc.ini
+- Added `-f` / `-ff` flags for partial extraction (flat / full path)
+- Added `--innosetup` flag for silent mode in installers
+- Fixed Python 3.8 compatibility (type hints, `tarfile.extractall`)
+- All CLI messages translated to English
+- GUI (`sycg`): custom title bar, dark/white/auto themes, language files (.syl)
+- GUI (`sycg`): `--icon`, `--theme`, `--lang`, `--close`, `--nocancel`, `--nopause`, `--nobackground`
+- Windows 7 / 8 / 10 / 11 support (x86 and x64)
+
+### v0.0.1
+- Initial release
 
 ---
 
@@ -138,7 +157,7 @@ There is no official SYC Pascal unit or include file for InnoSetup. Integration 
 - `dict` field (dictionary size hint)
 - Multi-volume spanning with recovery records
 - Archive comments
-- Self-extracting archives (SFX)
+- Self-extracting archives (SFX) — planned for future release
 
 ---
 

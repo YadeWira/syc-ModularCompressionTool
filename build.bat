@@ -88,7 +88,7 @@ if "!PY64!"=="" if "!PY32!"=="" (
 )
 
 :: Dependencias base (siempre disponibles)
-set "DEPS_BASE=pyinstaller pillow cryptography"
+set "DEPS_BASE=pyinstaller pillow cryptography reedsolo"
 :: psutil: puede fallar en x86 sin Visual C++ Build Tools
 :: Se intenta instalar, si falla se continua sin ella (hay fallback en syc.py)
 set "DEPS_OPTIONAL=psutil"
@@ -127,16 +127,16 @@ echo.
 if not "!PY64!"=="" (
     echo  Building x64...
     echo  -------------------------------------
-    call :compile "!PY64!" x64 syc   syc.py
-    call :compile "!PY64!" x64 sycg  sycg.py
+    call :compile "!PY64!" x64 syc       syc.py
+    call :compile "!PY64!" x64 sycg      sycg.py
     echo.
 )
 
 if not "!PY32!"=="" (
     echo  Building x86...
     echo  -------------------------------------
-    call :compile "!PY32!" x86 syc   syc.py
-    call :compile "!PY32!" x86 sycg  sycg.py
+    call :compile "!PY32!" x86 syc       syc.py
+    call :compile "!PY32!" x86 sycg      sycg.py
     echo.
 )
 

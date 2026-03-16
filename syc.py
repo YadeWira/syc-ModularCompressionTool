@@ -48,18 +48,24 @@ def _fmt_size(n: int) -> str:
     return f"{n:.1f} TB"
 
 def _out(msg: str):
-    sys.stdout.write(f"[INFO] {msg}\n")
     _log_write(f"[INFO] {msg}")
+    if _progress.innosetup:
+        return
+    sys.stdout.write(f"[INFO] {msg}\n")
     sys.stdout.flush()
 
 def _live(msg: str):
+    if _progress.innosetup:
+        return
     sys.stdout.write(f"\r[INFO] {msg:<78}")
     sys.stdout.flush()
 
 def _live_commit(msg: str):
+    _log_write(f"[INFO] {msg}")
+    if _progress.innosetup:
+        return
     sys.stdout.write(f"\r[INFO] {msg:<78}\n")
     sys.stdout.flush()
-    _log_write(f"[INFO] {msg}")
 
 # ─── Log ─────────────────────────────────────────────────────────────────────
 
@@ -174,6 +180,8 @@ class _Progress:
     def __init__(self):
         self.total         = 0
         self.done          = 0
+        self.innosetup     = False
+        self.progress_file = None
 
 
     def setup(self, total: int):
@@ -186,8 +194,19 @@ class _Progress:
             return
         self.done += 1
         pct = (self.done / self.total) * 100
-        sys.stdout.write(f"\r[INFO] {pct:.1f}%{' ' * 70}\n")
-        sys.stdout.flush()
+        if self.innosetup:
+            line = f"{pct:.1f}\n"
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            if self.progress_file:
+                try:
+                    with open(self.progress_file, "w") as _pf:
+                        _pf.write(line)
+                except Exception:
+                    pass
+        else:
+            sys.stdout.write(f"\r[INFO] {pct:.1f}%{' ' * 70}\n")
+            sys.stdout.flush()
 
 _progress = _Progress()
 
@@ -272,11 +291,11 @@ def _extract_tar(tar_bytes: bytes, outdir: str):
     """Extrae un tar desde bytes al directorio de salida"""
     buf = io.BytesIO(tar_bytes)
     with tarfile.open(fileobj=buf, mode="r") as tar:
-        # filter="data" solo existe en Python 3.12+
-            try:
-                tar.extractall(path=outdir, filter="data")
-            except TypeError:
-                tar.extractall(path=outdir)
+        # filter="data" only exists in Python 3.12+
+        try:
+            tar.extractall(path=outdir, filter="data")
+        except TypeError:
+            tar.extractall(path=outdir)
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -296,7 +315,7 @@ def _print_help():
         cpu_str = f"CPU: {threads}T"
         ram_str = ""
     arch = "x64" if struct.calcsize("P")*8 == 64 else "x86"
-    header = f"SYC v0.0.1 {arch} | by Yade Bravo (YadeWira) | {cpu_str}"
+    header = f"SYC v0.0.2 {arch} | by Yade Bravo (YadeWira) | {cpu_str}"
     if ram_str: header += f" | {ram_str}"
     print(header)
     print("""SYC - Modular compression tool with external compressors
@@ -305,8 +324,10 @@ Usage: syc <command> [options]
 Commands:
   a   Add / compress files
   x   Extract files
-  l   List contents
-  t   Verify integrity
+  l    List contents (compact)
+  ls   List contents PowerShell-style, with optional folder filter
+  t    Verify integrity
+  m    List all compression methods from syc.ini
 
 Compression options (a):
   -m METHOD          Compression method (alias from .ini or direct chain)
@@ -326,17 +347,28 @@ Multi-part:
 Hashes:
   --crc32            Calculate and store CRC32 per file
   --md5              Calculate and store MD5 per file
+  --comment "TEXT"   Add a text comment to the archive
 
 Encryption:
   -key PASSWORD      Encrypt with password (AES-256 by default)
   -ks ALGORITHM      AES256 (default) or CC20 (ChaCha20)
   --full-encrypted   Encrypt header too (hides file names)
 
+InnoSetup:
+  --innosetup        Silent mode: only output % to stdout
+  --innosetup FILE   Same, also write % to FILE in real time
+
 Log:
   --log              Save log to archive.syc.log (auto name)
   --log FILE         Save log to specific path
 
 Examples:
+  syc m
+  syc m -cfg myconfig.ini
+  syc sfx data.syc -o installer.exe --title "My Game" --icon game.ico
+  syc sfx data.syc -o installer.exe --output-dir "C:/Games/MyGame" --arch x86
+  syc ls backup.syc
+  syc ls backup.syc compressors\
   syc a backup.syc folder -m xpszx
   syc a backup.syc folder -m xpszx -v
   syc a backup.syc folder -m xpszx -tar
@@ -354,9 +386,34 @@ Examples:
 
 # ─── Comandos ────────────────────────────────────────────────────────────────
 
+def cmd_methods(args):
+    """Lists all [Compression methods] from the .ini with resolved chains"""
+    ini = _load_ini(getattr(args, "cfg", ["syc.ini"]))
+    methods = ini.list_methods()
+    if not methods:
+        _out("No methods found in config.")
+        return
+    max_len = max(len(m) for m in methods)
+    _out(f"Methods defined in config ({len(methods)} total):")
+    _out("")
+    for alias in methods:
+        resolved = ini.resolve_method(alias)
+        if resolved != alias:
+            _out(f"  {alias:<{max_len}}  ->  {resolved}")
+        else:
+            _out(f"  {alias}")
+    _out("")
+
+
 def cmd_add(args):
     import time as _time
     _cmd_start = _time.time()
+    _inno = getattr(args, "innosetup", None)
+    if _inno is not None:
+        _progress.innosetup     = True
+        _progress.progress_file = _inno if isinstance(_inno, str) else None
+        logging.getLogger("syc.executor").setLevel(logging.WARNING)
+        logging.getLogger("syc").setLevel(logging.WARNING)
     _init_log(args.archive, getattr(args, "log", None))
     ini = _load_ini(args.cfg)
     # Resolver workdir para files temporales del executor
@@ -440,7 +497,7 @@ def cmd_add(args):
         _out(f"  Compressing tar ({_fmt_size(tar_size)})...")
         step_logger.setLevel(logging.INFO)
         # Activar progreso en modo -tar (solo si no es -vv)
-        executor.show_progress = (_verbose_level(args) < 2)
+        executor.show_progress = (_verbose_level(args) < 2) and not _progress.innosetup
         executor.expected_size = expected_comp
         executor.step_total    = len(chain.steps)
         executor.step_done     = 0
@@ -467,6 +524,8 @@ def cmd_add(args):
         )
 
         archive.set_tar_block(tar_bytes, compressed)
+        if getattr(args, "comment", None):
+            archive.comment = args.comment
 
         total_ratio = (1 - len(compressed) / total_orig) * 100 if total_orig > 0 else 0
 
@@ -477,6 +536,12 @@ def cmd_add(args):
             _out("")
             for p in paths:
                 _out(f"  Part: {p}  ({_fmt_size(os.path.getsize(p))})")
+            if getattr(args, "rr", 0) > 0:
+                from recovery import generate_recovery
+                _out(f"  Generating {args.rr} recovery record(s)...")
+                rr_paths = generate_recovery(paths, args.archive, args.rr)
+                for p in rr_paths:
+                    _out(f"  Recovery: {p}  ({_fmt_size(os.path.getsize(p))})")
             _out("")
             _progress.step()  # paso final: escritura/division
             _out(f"Total: {_fmt_size(total_orig)} -> {_fmt_size(len(compressed))} ({total_ratio:.1f}% reduction)  [{len(paths)} parts]")
@@ -494,6 +559,8 @@ def cmd_add(args):
     archive = SycArchive(method=method_name, tar_mode=False,
                          enc_key=args.key, enc_alg=args.ks,
                          full_encrypted=args.full_encrypted)
+    if getattr(args, "comment", None):
+        archive.comment = args.comment
     total_files = len(files)
     total_orig  = 0
     total_comp  = 0
@@ -566,6 +633,12 @@ def cmd_add(args):
 def cmd_extract(args):
     import time as _time
     _cmd_start = _time.time()
+    _inno = getattr(args, "innosetup", None)
+    if _inno is not None:
+        _progress.innosetup     = True
+        _progress.progress_file = _inno if isinstance(_inno, str) else None
+        logging.getLogger("syc.executor").setLevel(logging.WARNING)
+        logging.getLogger("syc").setLevel(logging.WARNING)
 
 
     _init_log(args.archive, getattr(args, "log", None))
@@ -583,6 +656,18 @@ def cmd_extract(args):
             _out(f"Multi-part tar: {len(parts)} parts found")
             archive = read_tar_parts(args.archive, password=password)
         else:
+            # Auto-recover missing parts if RR files exist
+            from recovery import find_rr_files, check_and_recover
+            rr_files = find_rr_files(args.archive)
+            if rr_files:
+                from chunk import glob_parts
+                existing = glob_parts(args.archive)
+                _out(f"  Found {len(rr_files)} recovery file(s), checking integrity...")
+                try:
+                    parts = check_and_recover(existing, rr_files)
+                    _out(f"  Integrity OK / recovered.")
+                except Exception as e:
+                    _out(f"  Recovery failed: {e}")
             _out(f"Multi-part normal: {len(parts)} parts found")
             archives = read_normal_parts(args.archive, password=password)
             for arc in archives:
@@ -613,10 +698,12 @@ def cmd_extract(args):
 
     # ── Extracción modo tar ──────────────────────────────────────────────────
     if archive.tar_mode:
+        if getattr(args, "f", None) or getattr(args, "ff", None):
+            _out("WARN: -f/-ff filter is not supported in tar mode — extracting all files.")
         # Setup progreso: decompress(N*2 inicio+fin) + extract(1)
         _progress.setup(len(chain.steps) * 2 + 1)
         executor.global_progress = _progress
-        executor.show_progress = (_verbose_level(args) < 2)
+        executor.show_progress = (_verbose_level(args) < 2) and not _progress.innosetup
         executor.step_total = len(chain.steps)
         executor.step_done  = 0
 
@@ -642,6 +729,31 @@ def cmd_extract(args):
     _do_extract_normal(archive, ini, args, _cmd_start)
 
 
+def _matches_filter(name: str, filters: list) -> bool:
+    """Check if a file name matches any of the -f filters.
+    Supports exact match, wildcard (*), and folder prefix (ends with /)
+    """
+    import fnmatch
+    if not filters:
+        return True
+    norm = name.replace("\\", "/")
+    for f in filters:
+        fn = f.replace("\\", "/")
+        # Folder prefix: -f compressors/
+        if fn.endswith("/"):
+            if norm.startswith(fn) or norm + "/" == fn:
+                return True
+        # Wildcard
+        elif "*" in fn or "?" in fn:
+            if fnmatch.fnmatch(norm, fn) or fnmatch.fnmatch(norm.split("/")[-1], fn):
+                return True
+        # Exact match (case-insensitive on Windows)
+        else:
+            if norm.lower() == fn.lower():
+                return True
+    return False
+
+
 def _do_extract_normal(archive, ini, args, cmd_start: float = None):
     method_name = archive.method
     chain_str = ini.resolve_method(method_name) if method_name in ini.methods else method_name
@@ -656,9 +768,33 @@ def _do_extract_normal(archive, ini, args, cmd_start: float = None):
                         passthrough=(_verbose_level(args) >= 2))
     outdir = args.output or "."
 
-    total_files = len(archive.entries)
-    for i, entry in enumerate(archive.entries, 1):
-        out_path = os.path.join(outdir, entry.name)
+    # Apply -f (flat) or -ff (full path) filters
+    filters_flat = [f.replace("\\","/") for f in (getattr(args,"f",None) or [])]
+    filters_full = [f.replace("\\","/") for f in (getattr(args,"ff",None) or [])]
+    all_filters  = filters_flat + filters_full
+    flat_mode    = bool(filters_flat) and not filters_full
+
+    if all_filters:
+        entries_to_extract = [e for e in archive.entries
+                              if _matches_filter(e.name, all_filters)]
+    else:
+        entries_to_extract = list(archive.entries)
+
+    if all_filters and not entries_to_extract:
+        _out("ERROR: No files matched the specified filter(s).")
+        sys.exit(1)
+
+    if all_filters:
+        tag = "flat" if flat_mode else "full path"
+        _out("  Filter ({}): {}  ({}/{} files)".format(
+            tag, ", ".join(all_filters), len(entries_to_extract), len(archive.entries)))
+
+    total_files = len(entries_to_extract)
+    for i, entry in enumerate(entries_to_extract, 1):
+        if flat_mode:
+            out_path = os.path.join(outdir, os.path.basename(entry.name))
+        else:
+            out_path = os.path.join(outdir, entry.name)
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
 
         vlevel = _verbose_level(args)
@@ -715,6 +851,8 @@ def cmd_list(args):
     print(f"\nArchivo : {args.archive}")
     print(f"Mode    : {mode_str}{enc_str}")
     print(f"Method  : {archive.method}")
+    if archive.comment:
+        print(f"Comment : {archive.comment}")
     print(f"Archivos: {len(archive.entries)}")
     if archive.tar_mode and archive.tar_original_size:
         print(f"Bloque  : {_fmt_size(archive.tar_original_size)} -> {_fmt_size(archive.tar_compressed_size)}")
@@ -758,6 +896,89 @@ def cmd_list(args):
     print()
 
 
+def cmd_ls(args):
+    password = args.key if hasattr(args, "key") else None
+    try:
+        archive = SycArchive.read(args.archive, password=password)
+    except ValueError as e:
+        _out("ERROR: " + str(e))
+        sys.exit(1)
+
+    def _norm(p):
+        return p.replace("\\", "/")
+
+    folder = _norm(args.folder).rstrip("/") if (hasattr(args, "folder") and args.folder) else ""
+
+    entries = archive.list_entries()
+    all_paths = [_norm(e[0]) for e in entries]
+
+    if folder:
+        prefix = folder + "/"
+        items = []
+        for i, e in enumerate(entries):
+            p = all_paths[i]
+            if p.startswith(prefix):
+                rel = p[len(prefix):]
+                items.append((rel, e[1], e[2], e[3], e[4], e[5]))
+        if not items:
+            print("  No entries found matching: " + folder + "\\")
+            return
+        header = args.archive + "  [" + folder + "\\]"
+    else:
+        items = [(e[0], e[1], e[2], e[3], e[4], e[5]) for e in entries]
+        header = args.archive
+
+    subdirs = set()
+    files = []
+    for name, orig, comp, ratio, crc32, md5 in items:
+        n = _norm(name)
+        parts = n.split("/")
+        if len(parts) > 1:
+            subdirs.add(parts[0])
+        else:
+            files.append((name, orig))
+
+    all_sizes = [orig for _, orig, *_ in items]
+    max_len = max((len("{:,}".format(s)) for s in all_sizes), default=6)
+    max_len = max(max_len, 6)
+
+    mode_str = "solid tar" if archive.tar_mode else "normal"
+    print("")
+    print("    Archive: " + header + "  [" + archive.method + " | " + mode_str + "]")
+    if archive.comment:
+        print("    Comment: " + archive.comment)
+    print("")
+    print("{:<6}  {:>{}}  {}".format("Mode", "Length", max_len, "Name"))
+    print("{:<6}  {:>{}}  {}".format("----", "------", max_len, "----"))
+
+    total_orig = 0
+
+    for d in sorted(subdirs):
+        print("{:<6}  {:>{}}  {}\\".format("d----", "", max_len, d))
+
+    for name, orig, comp, ratio, crc32, md5 in sorted(items, key=lambda x: x[0].lower()):
+        n = _norm(name)
+        if "/" not in n:
+            size_str = "{:,}".format(orig)
+            print("{:<6}  {:>{}}  {}".format("-a---", size_str, max_len, name))
+            total_orig += orig
+
+    print("")
+    nf_direct = len([e for e in items if "/" not in _norm(e[0])])
+    nf_total  = len(items)
+    nd = len(subdirs)
+    total_all = sum(e[1] for e in items)  # todos los archivos incluyendo subcarpetas
+    parts = []
+    if nd: parts.append("{} {}".format(nd, "directories" if nd != 1 else "directory"))
+    parts.append("{} {}".format(nf_total, "files" if nf_total != 1 else "file"))
+    parts.append(_fmt_size(total_all) + " original")
+    if archive.tar_mode and archive.tar_compressed_size:
+        parts.append(_fmt_size(archive.tar_compressed_size) + " compressed")
+    print("    " + "    ".join(parts))
+    print("")
+
+
+
 def cmd_test(args):
     try:
         archive = SycArchive.read(args.archive)
@@ -789,11 +1010,17 @@ def main():
     p_add.add_argument("-tmpr", action="store_true")
     p_add.add_argument("-tmpd", nargs="?", const="", default=None, metavar="RUTA")
     p_add.add_argument("-chunk", default=None, metavar="TAMANO")
+    p_add.add_argument("-rr", type=int, default=0, metavar="N",
+                       help="Generate N recovery record parts (requires -chunk)")
     p_add.add_argument("-key", default=None, metavar="PASSWORD")
     p_add.add_argument("-ks", default="AES256", choices=["AES256", "CC20"])
     p_add.add_argument("--full-encrypted", action="store_true")
     p_add.add_argument("--crc32", action="store_true")
     p_add.add_argument("--md5", action="store_true")
+    p_add.add_argument("--comment", default=None, metavar="TEXT",
+                       help="Add a comment to the archive")
+    p_add.add_argument("--innosetup", nargs="?", const=True, default=None, metavar="FILE",
+                       help="InnoSetup mode: only show %%, silence all [INFO] output")
     p_add.add_argument("--log", nargs="?", const=True, default=None,
                        metavar="ARCHIVO",
                        help="Guardar log (sin ARCHIVO = nombre_archivo.log)")
@@ -809,8 +1036,21 @@ def main():
     p_ext.add_argument("-tmpr", action="store_true")
     p_ext.add_argument("-tmpd", nargs="?", const="", default=None, metavar="RUTA")
     p_ext.add_argument("-key", default=None, metavar="PASSWORD")
+    p_ext.add_argument("-f", action="append", default=None, metavar="PATTERN",
+                       help="Extract matching files, flat (no folder structure)")
+    p_ext.add_argument("-ff", action="append", default=None, metavar="PATTERN",
+                       help="Extract matching files, preserving full path")
+    p_ext.add_argument("--innosetup", nargs="?", const=True, default=None, metavar="FILE")
     p_ext.add_argument("--log", nargs="?", const=True, default=None, metavar="ARCHIVO")
 
+
+    p_ls = subparsers.add_parser("ls", add_help=False)
+    p_ls.add_argument("archive")
+    p_ls.add_argument("folder", nargs="?", default="")
+    p_ls.add_argument("-key", default=None, metavar="PASSWORD")
+
+    p_m = subparsers.add_parser("m", add_help=False)
+    p_m.add_argument("-cfg", nargs="+", default=["syc.ini"])
 
     p_list = subparsers.add_parser("l", add_help=False)
     p_list.add_argument("archive")
@@ -821,7 +1061,7 @@ def main():
     p_test.add_argument("archive")
 
     # Si el comando no es reconocido, mostrar help
-    if sys.argv[1] not in ("a", "x", "l", "t"):
+    if sys.argv[1] not in ("a", "x", "l", "ls", "t", "m"):
         _print_help()
         sys.exit(1)
 
@@ -848,6 +1088,10 @@ def main():
         cmd_list(args)
     elif args.command == "t":
         cmd_test(args)
+    elif args.command == "ls":
+        cmd_ls(args)
+    elif args.command == "m":
+        cmd_methods(args)
 
 
 if __name__ == "__main__":

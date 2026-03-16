@@ -117,8 +117,8 @@ class P:
         if m: self.total=float(m.group(1)); self.comp=float(m.group(2)); self.ratio=float(m.group(3)); return
         m=re.match(r'^\[INFO\]\s+Modo s.lido.*?empaquetando\s+(\d+)\s+archivos\s+\(([\d.]+)',line)
         if m: self.status=f"Empaquetando {m.group(1)} archivos ({m.group(2)} MB)..."; return
-        # Progreso Total modo normal: [INFO]   Progreso Total - 45.2%  [45/100]  ...
-        m=re.match(r'^\[INFO\]\s+Progreso Total\s*-\s*([\d.]+)%',line)
+        # Total Progress normal mode: [INFO]   Total Progress - 45.2%  [45/100]
+        m=re.match(r'^\[INFO\]\s+Total Progress\s*-\s*([\d.]+)%',line)
         if m: self.pct=float(m.group(1)); return
         # Archivo actual modo normal: [INFO]   Comprimiendo: ruta (size)
         m=re.match(r'^\[INFO\]\s+(?:Comprimiendo|Extrayendo):\s+(.+?)\s+\(',line)
@@ -435,7 +435,7 @@ def main():
             import os as _os; threads = _os.cpu_count() or 1
             cpu_str = f"CPU: {threads}T"; ram_str = ""
         arch = "x64" if struct.calcsize("P")*8 == 64 else "x86"
-        hdr = f"SYC v0.0.1 {arch} | by Yade Bravo (YadeWira) | {cpu_str}"
+        hdr = f"SYC v0.0.2 {arch} | by Yade Bravo (YadeWira) | {cpu_str}"
         if ram_str: hdr += f" | {ram_str}"
         print(hdr)
         print("""SYCG - GUI wrapper for SYC

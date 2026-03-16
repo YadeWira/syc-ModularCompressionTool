@@ -46,6 +46,7 @@ FLAG_ENC       = 0x02  # datos encriptados
 FLAG_FULL_ENC  = 0x04  # cabecera + datos encriptados
 FLAG_CRC32     = 0x08
 FLAG_MD5       = 0x10
+FLAG_COMMENT   = 0x20  # archive comment present
 
 
 @dataclass
@@ -75,6 +76,7 @@ class SycArchive:
         self.enc_key         = enc_key          # None = sin encriptación
         self.enc_alg         = enc_alg
         self.full_encrypted  = full_encrypted   # encriptar cabecera también
+        self.comment: str = ""          # archive comment (optional)
         self.entries: List[FileEntry] = []
         self.tar_original_size:   int   = 0
         self.tar_compressed_size: int   = 0
@@ -109,6 +111,7 @@ class SycArchive:
         elif self.enc_key:      flags |= FLAG_ENC
         if any(e.crc32 is not None for e in self.entries): flags |= FLAG_CRC32
         if any(e.md5   is not None for e in self.entries): flags |= FLAG_MD5
+        if self.comment: flags |= FLAG_COMMENT
         return flags
 
     # ── Serialización del índice ──────────────────────────────────────────────
@@ -155,6 +158,12 @@ class SycArchive:
             method_b = self.method.encode("utf-8")
             f.write(struct.pack("<H", len(method_b)))
             f.write(method_b)
+
+            # Write comment if present
+            if flags & FLAG_COMMENT:
+                comment_b = self.comment.encode("utf-8")
+                f.write(struct.pack("<H", len(comment_b)))
+                f.write(comment_b)
 
             if flags & FLAG_FULL_ENC:
                 # Encriptar: índice + (bloque tar si aplica)
@@ -203,8 +212,14 @@ class SycArchive:
             enc           = bool(flags & FLAG_ENC)
             has_crc       = bool(flags & FLAG_CRC32)
             has_md5       = bool(flags & FLAG_MD5)
+            has_comment   = bool(flags & FLAG_COMMENT)
 
             archive = cls(method=method, tar_mode=tar_mode)
+
+            # Read comment if present
+            if has_comment:
+                comment_len = struct.unpack("<H", f.read(2))[0]
+                archive.comment = f.read(comment_len).decode("utf-8")
             archive._has_crc32 = has_crc
             archive._has_md5   = has_md5
 

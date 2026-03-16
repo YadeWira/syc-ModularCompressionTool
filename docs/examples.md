@@ -182,6 +182,57 @@ syc x secure.syc -o recovered -key StrongPass
 
 ---
 
+## Archive Comments
+
+```powershell
+syc a backup.syc folder -m xpszf1 -tar --comment "Game data v1.2 - 15/03/2026"
+syc ls backup.syc
+#     Comment: Game data v1.2 - 15/03/2026
+```
+
+---
+
+## Partial Extraction
+
+```powershell
+# Extract single file, flat (no folder structure)
+syc x backup.syc -o dest -f "compressors\srep.exe"
+# dest\srep.exe
+
+# Extract single file, preserve full path
+syc x backup.syc -o dest -ff "compressors\srep.exe"
+# dest\compressors\srep.exe
+
+# Wildcard
+syc x backup.syc -o dest -f "compressors\*.exe"
+
+# Multiple filters
+syc x backup.syc -o dest -f "compressors\srep.exe" -f "compressors\zstd.exe"
+```
+
+---
+
+## List Methods
+
+```powershell
+syc m
+syc m -cfg myconfig.ini
+```
+
+---
+
+## InnoSetup Silent Mode
+
+```powershell
+# Only output % to stdout, suppress all [INFO] lines
+syc x data.syc -o {app} --innosetup
+
+# Also write % to temp file for polling
+syc x data.syc -o {app} --innosetup {tmp}\progress.txt
+```
+
+---
+
 ## See Also
 
 - [CLI Reference — syc](syc-cli.md)

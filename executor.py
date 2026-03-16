@@ -42,7 +42,12 @@ class ProgressMonitor:
     def stop(self):
         self._stop.set()
         self._thread.join(timeout=2)
-        # Fijar la última línea del monitor con salto de línea
+        try:
+            from syc import _progress as _gp
+            if _gp.innosetup:
+                return
+        except Exception:
+            pass
         sys.stdout.write("\n")
         sys.stdout.flush()
 
@@ -58,6 +63,14 @@ class ProgressMonitor:
         return f"{n:.1f} TB"
 
     def _run(self):
+        # Verificar innosetup al inicio del hilo
+        try:
+            from syc import _progress as _gp
+            if _gp.innosetup:
+                return  # no escribir nada en modo innosetup
+        except Exception:
+            pass
+
         last_written = 0
         last_time    = time.time()
         first_tick   = True
@@ -97,11 +110,17 @@ class ProgressMonitor:
                     pass
 
             line = "  ".join(parts)
-            if self.label:
-                sys.stdout.write(f"\r[INFO] {line:<103}")
-            else:
-                sys.stdout.write(f"\r[INFO]   {line:<101}")
-            sys.stdout.flush()
+            try:
+                from syc import _progress as _gp
+                _innosetup = _gp.innosetup
+            except Exception:
+                _innosetup = False
+            if not _innosetup:
+                if self.label:
+                    sys.stdout.write(f"\r[INFO] {line:<103}")
+                else:
+                    sys.stdout.write(f"\r[INFO]   {line:<101}")
+                sys.stdout.flush()
             if first_tick:
                 first_tick = False
                 self._stop.wait(1.0)
@@ -346,24 +365,29 @@ class Executor:
 
         # stdio: log normal + ejecutar
         if mode == "stdio":
-            logger.info(f"{arrow} {step.raw} ({mode})")
+            _inno = getattr(self.global_progress, "innosetup", False)
+            if not _inno:
+                logger.info(f"{arrow} {step.raw} ({mode})")
             # Reportar inicio del paso (despues del log)
             if self.global_progress is not None:
                 self.global_progress.step()
             cmd = build_cmd(template, step, datafile="", packedfile="",
                            extra_options=comp_def.default or "")
             result = _run_stdio(cmd, data, passthrough=self.passthrough)
-            # Reportar fin del paso
-            if self.show_progress and not self.passthrough and self.global_progress is not None:
+            # Reportar fin del paso (siempre, independiente de show_progress)
+            if self.global_progress is not None:
                 self.global_progress.step()
             return result
 
         # tempfile / mixed: log primero, luego progreso
+        _inno = getattr(self.global_progress, "innosetup", False)
         if not use_monitor:
-            logger.info(f"{arrow} {step.raw} ({mode})")
+            if not _inno:
+                logger.info(f"{arrow} {step.raw} ({mode})")
         else:
-            sys.stdout.write(f"[INFO] {arrow} {step.raw} ({mode})\n")
-            sys.stdout.flush()
+            if not _inno:
+                sys.stdout.write(f"[INFO] {arrow} {step.raw} ({mode})\n")
+                sys.stdout.flush()
 
         # Reportar inicio del paso (despues del log)
         if self.global_progress is not None:

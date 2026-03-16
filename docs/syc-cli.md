@@ -14,8 +14,10 @@ syc <command> [options]
 |---|---|
 | `a` | Add / compress files into a `.syc` archive |
 | `x` | Extract files from a `.syc` archive |
-| `l` | List contents of an archive |
+| `l` | List contents (compact table) |
+| `ls` | List contents PowerShell-style, with optional folder filter |
 | `t` | Verify archive integrity |
+| `m` | List all compression methods from syc.ini |
 
 ---
 
@@ -66,6 +68,19 @@ syc a <archive.syc> <files...> [options]
 | `-ks ALGORITHM` | Encryption algorithm: `AES256` (default) or `CC20` (ChaCha20-Poly1305) |
 | `--full-encrypted` | Also encrypt the archive header (hides file names) |
 
+### Comment
+
+| Flag | Description |
+|---|---|
+| `--comment "TEXT"` | Embed a text comment in the archive (visible in `l` and `ls`) |
+
+### InnoSetup
+
+| Flag | Description |
+|---|---|
+| `--innosetup` | Silent mode: only output `%` to stdout, suppress all `[INFO]` lines |
+| `--innosetup FILE` | Same, also write `%` to FILE in real time for polling |
+
 ### Logging
 
 | Flag | Description |
@@ -84,6 +99,8 @@ syc x <archive.syc> [options]
 | Flag | Description |
 |---|---|
 | `-o PATH` | Output directory (default: current directory) |
+| `-f PATTERN` | Extract matching files, **flat** (no folder structure). Repeatable. |
+| `-ff PATTERN` | Extract matching files, **preserving full path**. Repeatable. |
 | `-cfg FILE` | Config file path |
 | `-v` | Verbose output |
 | `-vv` | Extra verbose |
@@ -159,6 +176,55 @@ When compressing or extracting, SYC shows real-time progress:
 ...
 [INFO] Total: 359.8 MB -> 142.5 MB (60.4% reduction)
 [INFO] Elapsed time: 22.40 sec
+```
+
+---
+
+## Command: `ls` — List (PowerShell style)
+
+```powershell
+syc ls <archive.syc> [folder\] [-key PASSWORD]
+```
+
+Displays archive contents in PowerShell `ls` format. Optionally filter by folder.
+
+```
+    Archive: backup.syc  [xpszf1 | solid tar]
+    Comment: My comment
+
+Mode       Length  Name
+----       ------  ----
+d----              compressors\
+d----              xtool\
+-a---       1,245  readme.txt
+
+    2 directories    18 files    14.5 MB original    6.8 MB compressed
+```
+
+```powershell
+# List root
+syc ls backup.syc
+
+# List specific folder
+syc ls backup.syc compressors\
+```
+
+---
+
+## Command: `m` — List Methods
+
+```powershell
+syc m [-cfg FILE]
+```
+
+Lists all `[Compression methods]` defined in `syc.ini` with their resolved chains:
+
+```
+[INFO] Methods defined in config (5 total):
+[INFO]
+[INFO]   z22     ->  zstd:--ultra:-22
+[INFO]   xpszx   ->  xprecomp+srep:-m5f:-a0+zstd:--ultra:-22
+[INFO]   xpszf1  ->  xprecomp+srep:-m5f:-a0+zpaqfranz:-ssd:-t0:-m1
 ```
 
 ---
