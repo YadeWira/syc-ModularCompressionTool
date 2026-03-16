@@ -22,7 +22,9 @@ Offset  Size  Description
 4       1     Flags (see below)
 5       2     Method name length (uint16 LE)
 7       N     Method name (UTF-8)
-7+N     ...   Index or encrypted payload
+7+N     2     Comment length (uint16 LE) — only if FLAG_COMMENT
+9+N     C     Comment text (UTF-8)       — only if FLAG_COMMENT
+...     ...   Index or encrypted payload
 ```
 
 ### Flags byte
@@ -30,10 +32,11 @@ Offset  Size  Description
 | Bit | Value | Name | Description |
 |---|---|---|---|
 | 0 | `0x01` | `FLAG_TAR` | Solid mode (tar block) |
-| 1 | `0x02` | `FLAG_ENC` | Data encrypted |
-| 2 | `0x04` | `FLAG_FULL_ENC` | Header + data encrypted |
+| 1 | `0x02` | `FLAG_ENC` | Data encrypted per entry |
+| 2 | `0x04` | `FLAG_FULL_ENC` | Header + data encrypted (full) |
 | 3 | `0x08` | `FLAG_CRC32` | CRC32 per file |
 | 4 | `0x10` | `FLAG_MD5` | MD5 per file |
+| 5 | `0x20` | `FLAG_COMMENT` | Archive comment present |
 
 ---
 
@@ -86,7 +89,17 @@ Each file's data is compressed independently with the full method chain.
 
 ## Encrypted Mode (FLAG_ENC)
 
-Data blocks are encrypted individually per file. Header is in plaintext.
+In normal (non-tar) mode, each file's compressed data is encrypted individually. The index stores the **encrypted size** (not the original compressed size). Header and file names are in plaintext.
+
+```
+[Magic][Flags][Method][Comment?]
+[NumFiles]
+  [Name][OrigSize][EncryptedSize][CRC32?][MD5?][EncryptedData]
+  [Name][OrigSize][EncryptedSize][CRC32?][MD5?][EncryptedData]
+  ...
+```
+
+In solid (tar) mode with `FLAG_ENC`, the tar block is encrypted as a single blob.
 
 ## Full Encrypted Mode (FLAG_FULL_ENC)
 

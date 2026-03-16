@@ -181,9 +181,31 @@ class SycArchive:
                 f.write(enc_payload)
 
             else:
-                # Índice en claro
-                index_bytes = self._serialize_index(flags)
-                f.write(index_bytes)
+                if (flags & FLAG_ENC) and not self.tar_mode:
+                    # Normal mode + encryption: encrypt each entry's data individually
+                    # Write index with encrypted sizes, then encrypted data
+                    import io as _io
+                    buf = _io.BytesIO()
+                    buf.write(struct.pack("<I", len(self.entries)))
+                    has_crc = bool(flags & FLAG_CRC32)
+                    has_md5 = bool(flags & FLAG_MD5)
+                    for entry in self.entries:
+                        enc_data = encrypt(entry.data, self.enc_key, self.enc_alg)
+                        name_b = entry.name.encode("utf-8")
+                        buf.write(struct.pack("<H", len(name_b)))
+                        buf.write(name_b)
+                        buf.write(struct.pack("<Q", entry.original_size))
+                        buf.write(struct.pack("<Q", len(enc_data)))
+                        if has_crc:
+                            buf.write(struct.pack("<I", entry.crc32 or 0))
+                        if has_md5:
+                            buf.write(entry.md5 or b'\x00' * 16)
+                        buf.write(enc_data)
+                    f.write(buf.getvalue())
+                else:
+                    # Índice en claro (normal unencrypted or tar mode)
+                    index_bytes = self._serialize_index(flags)
+                    f.write(index_bytes)
 
                 if self.tar_mode:
                     tar_payload = self.tar_data

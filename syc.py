@@ -265,8 +265,10 @@ def _collect_files(file_args):
 # ─── Tar helpers ─────────────────────────────────────────────────────────────
 
 def _arcname(filepath: str, base: str) -> str:
-    """Calcula el arcname relativo a base"""
-    return os.path.relpath(os.path.abspath(filepath), base)
+    """Calcula el arcname relativo a base.
+    Siempre usa forward slashes para compatibilidad con tarfile en Windows."""
+    rel = os.path.relpath(os.path.abspath(filepath), base)
+    return rel.replace("\\", "/")
 
 
 def _build_tar_memory(file_pairs: list) -> bytes:
@@ -315,15 +317,15 @@ def _print_help():
         cpu_str = f"CPU: {threads}T"
         ram_str = ""
     arch = "x64" if struct.calcsize("P")*8 == 64 else "x86"
-    header = f"SYC v0.0.2 {arch} | by Yade Bravo (YadeWira) | {cpu_str}"
+    header = f"SYC v0.0.3 {arch} | by Yade Bravo (YadeWira) | {cpu_str}"
     if ram_str: header += f" | {ram_str}"
     print(header)
     print("""SYC - Modular compression tool with external compressors
 Usage: syc <command> [options]
 
 Commands:
-  a   Add / compress files
-  x   Extract files
+  a    Add / compress files
+  x    Extract files
   l    List contents (compact)
   ls   List contents PowerShell-style, with optional folder filter
   t    Verify integrity
@@ -354,6 +356,13 @@ Encryption:
   -ks ALGORITHM      AES256 (default) or CC20 (ChaCha20)
   --full-encrypted   Encrypt header too (hides file names)
 
+Extraction options (x):
+  -o PATH            Output directory (default: current directory)
+  -f  PATTERN        Extract matching files, flat output (no folder structure)
+  -ff PATTERN        Extract matching files, preserving full path
+                     Both support: exact name, wildcards (*), folder prefix (folder/)
+                     Both are repeatable: -f file1.exe -f file2.exe
+
 InnoSetup:
   --innosetup        Silent mode: only output % to stdout
   --innosetup FILE   Same, also write % to FILE in real time
@@ -365,22 +374,24 @@ Log:
 Examples:
   syc m
   syc m -cfg myconfig.ini
-  syc sfx data.syc -o installer.exe --title "My Game" --icon game.ico
-  syc sfx data.syc -o installer.exe --output-dir "C:/Games/MyGame" --arch x86
   syc ls backup.syc
   syc ls backup.syc compressors\
   syc a backup.syc folder -m xpszx
   syc a backup.syc folder -m xpszx -v
   syc a backup.syc folder -m xpszx -tar
   syc a backup.syc folder -m xpszx -tar -tmpd D:/tmp
-  syc a backup.syc folder -m xpszx --log
-  syc a backup.syc folder -m xpszx -vv --log D:/logs/out.log
-  syc a "back??.syc" folder -m xpszx -chunk 700MB
+  syc a backup.syc folder -m xpszx --comment "My backup"
   syc a backup.syc folder -m xpszx --md5 --crc32
   syc a backup.syc folder -m xpszx -key MyPass -ks CC20
   syc a backup.syc folder -m xpszx -key P --full-encrypted
+  syc a "back??.syc" folder -m xpszx -chunk 700MB
+  syc x backup.syc -o dest
   syc x backup.syc -o dest -key MyPass
+  syc x backup.syc -o dest -f "file.exe"
+  syc x backup.syc -o dest -ff "folder\file.exe"
+  syc x backup.syc -o dest -f "*.exe" -f "*.dll"
   syc x "back??.syc" -o dest
+  syc l backup.syc
   syc l backup.syc -key MyPass""")
 
 
@@ -536,12 +547,6 @@ def cmd_add(args):
             _out("")
             for p in paths:
                 _out(f"  Part: {p}  ({_fmt_size(os.path.getsize(p))})")
-            if getattr(args, "rr", 0) > 0:
-                from recovery import generate_recovery
-                _out(f"  Generating {args.rr} recovery record(s)...")
-                rr_paths = generate_recovery(paths, args.archive, args.rr)
-                for p in rr_paths:
-                    _out(f"  Recovery: {p}  ({_fmt_size(os.path.getsize(p))})")
             _out("")
             _progress.step()  # paso final: escritura/division
             _out(f"Total: {_fmt_size(total_orig)} -> {_fmt_size(len(compressed))} ({total_ratio:.1f}% reduction)  [{len(paths)} parts]")
@@ -656,18 +661,6 @@ def cmd_extract(args):
             _out(f"Multi-part tar: {len(parts)} parts found")
             archive = read_tar_parts(args.archive, password=password)
         else:
-            # Auto-recover missing parts if RR files exist
-            from recovery import find_rr_files, check_and_recover
-            rr_files = find_rr_files(args.archive)
-            if rr_files:
-                from chunk import glob_parts
-                existing = glob_parts(args.archive)
-                _out(f"  Found {len(rr_files)} recovery file(s), checking integrity...")
-                try:
-                    parts = check_and_recover(existing, rr_files)
-                    _out(f"  Integrity OK / recovered.")
-                except Exception as e:
-                    _out(f"  Recovery failed: {e}")
             _out(f"Multi-part normal: {len(parts)} parts found")
             archives = read_normal_parts(args.archive, password=password)
             for arc in archives:
@@ -747,9 +740,13 @@ def _matches_filter(name: str, filters: list) -> bool:
         elif "*" in fn or "?" in fn:
             if fnmatch.fnmatch(norm, fn) or fnmatch.fnmatch(norm.split("/")[-1], fn):
                 return True
-        # Exact match (case-insensitive on Windows)
+        # Exact match — try full path and basename
         else:
+            basename = norm.split("/")[-1]
             if norm.lower() == fn.lower():
+                return True
+            # Also match against basename alone (e.g. -f "file.json" matches "folder/file.json")
+            if "/" not in fn and basename.lower() == fn.lower():
                 return True
     return False
 
@@ -1010,8 +1007,7 @@ def main():
     p_add.add_argument("-tmpr", action="store_true")
     p_add.add_argument("-tmpd", nargs="?", const="", default=None, metavar="RUTA")
     p_add.add_argument("-chunk", default=None, metavar="TAMANO")
-    p_add.add_argument("-rr", type=int, default=0, metavar="N",
-                       help="Generate N recovery record parts (requires -chunk)")
+
     p_add.add_argument("-key", default=None, metavar="PASSWORD")
     p_add.add_argument("-ks", default="AES256", choices=["AES256", "CC20"])
     p_add.add_argument("--full-encrypted", action="store_true")
