@@ -317,7 +317,7 @@ def _print_help():
         cpu_str = f"CPU: {threads}T"
         ram_str = ""
     arch = "x64" if struct.calcsize("P")*8 == 64 else "x86"
-    header = f"SYC v0.0.3 {arch} | by Yade Bravo (YadeWira) | {cpu_str}"
+    header = f"SYC v0.1.0 {arch} | by Yade Bravo (YadeWira) | {cpu_str}"
     if ram_str: header += f" | {ram_str}"
     print(header)
     print("""SYC - Modular compression tool with external compressors
@@ -325,7 +325,8 @@ Usage: syc <command> [options]
 
 Commands:
   a    Add / compress files
-  x    Extract files
+  x    Extract files (preserving folder structure)
+  e    Extract files flat (no folder structure)
   l    List contents (compact)
   ls   List contents PowerShell-style, with optional folder filter
   t    Verify integrity
@@ -356,12 +357,19 @@ Encryption:
   -ks ALGORITHM      AES256 (default) or CC20 (ChaCha20)
   --full-encrypted   Encrypt header too (hides file names)
 
-Extraction options (x):
+Compression filters (a):
+  -x PATTERN         Exclude files matching PATTERN (repeatable)
+  -n PATTERN         Include only files matching PATTERN (repeatable)
+                     Both support wildcards: -x "*.tmp" -x "*.log"
+
+Extraction options (x / e):
   -o PATH            Output directory (default: current directory)
   -f  PATTERN        Extract matching files, flat output (no folder structure)
   -ff PATTERN        Extract matching files, preserving full path
                      Both support: exact name, wildcards (*), folder prefix (folder/)
                      Both are repeatable: -f file1.exe -f file2.exe
+  -ow MODE           Overwrite existing files: + always (default), - skip, p prompt
+  -y                 Answer yes to all prompts (same as -ow +)
 
 InnoSetup:
   --innosetup        Silent mode: only output % to stdout
@@ -450,6 +458,31 @@ def cmd_add(args):
     files = _collect_files(args.files)
     if not files:
         _out("ERROR: No files to compress")
+        sys.exit(1)
+
+    # Apply -x (exclude) and -n (include-only) filters
+    excl = [p.replace("\\", "/") for p in (getattr(args, "x", None) or [])]
+    incl = [p.replace("\\", "/") for p in (getattr(args, "n", None) or [])]
+    if excl or incl:
+        import fnmatch as _fnm
+        def _filt(pair):
+            rel = _arcname(pair[0], pair[1]).replace("\\", "/")
+            base = rel.split("/")[-1]
+            if excl:
+                for pat in excl:
+                    if _fnm.fnmatch(rel, pat) or _fnm.fnmatch(base, pat):
+                        return False
+            if incl:
+                for pat in incl:
+                    if _fnm.fnmatch(rel, pat) or _fnm.fnmatch(base, pat):
+                        return True
+                return False
+            return True
+        before = len(files)
+        files = [f for f in files if _filt(f)]
+        _out(f"  Filter: {before} -> {len(files)} files")
+    if not files:
+        _out("ERROR: No files left after filtering")
         sys.exit(1)
 
     # ── Modo TAR sólido ──────────────────────────────────────────────────────
@@ -692,7 +725,10 @@ def cmd_extract(args):
     # ── Extracción modo tar ──────────────────────────────────────────────────
     if archive.tar_mode:
         if getattr(args, "f", None) or getattr(args, "ff", None):
-            _out("WARN: -f/-ff filter is not supported in tar mode — extracting all files.")
+            _out("ERROR: -f/-ff filter is not supported in tar mode.")
+            _out("       Tar archives must be fully decompressed before filtering.")
+            _out("       Extract without -f/-ff, then pick the files you need.")
+            sys.exit(1)
         # Setup progreso: decompress(N*2 inicio+fin) + extract(1)
         _progress.setup(len(chain.steps) * 2 + 1)
         executor.global_progress = _progress
@@ -806,6 +842,18 @@ def _do_extract_normal(archive, ini, args, cmd_start: float = None):
             sys.stdout.write("\n")
             _out(f"ERROR: {e}")
             sys.exit(1)
+
+        # Overwrite check (-y forces always overwrite)
+        ow = "+" if getattr(args, "yes", False) else getattr(args, "overwrite", "+")
+        if os.path.exists(out_path) and ow != "+":
+            if ow == "-":
+                _out(f"  Skipping (exists): {entry.name}")
+                continue
+            elif ow == "p":
+                ans = input(f"  Overwrite {out_path}? [y/N] ").strip().lower()
+                if ans != "y":
+                    _out(f"  Skipping: {entry.name}")
+                    continue
 
         with open(out_path, "wb") as f:
             f.write(data)
@@ -999,7 +1047,8 @@ def main():
     p_add = subparsers.add_parser("a", add_help=False)
     p_add.add_argument("archive")
     p_add.add_argument("files", nargs="+")
-    p_add.add_argument("-m", "--method", default="zstd:--ultra:-22")
+    p_add.add_argument("-m", "--method", default=None, metavar="METHOD",
+                       help="Compression method (required)")
     p_add.add_argument("-cfg", nargs="+", default=["syc.ini"])
     p_add.add_argument("-v", "--verbose", action="store_true")
     p_add.add_argument("-vv", action="store_true")
@@ -1013,6 +1062,10 @@ def main():
     p_add.add_argument("--full-encrypted", action="store_true")
     p_add.add_argument("--crc32", action="store_true")
     p_add.add_argument("--md5", action="store_true")
+    p_add.add_argument("-x", action="append", default=None, metavar="PATTERN",
+                       help="Exclude files matching PATTERN (repeatable)")
+    p_add.add_argument("-n", action="append", default=None, metavar="PATTERN",
+                       help="Include only files matching PATTERN (repeatable)")
     p_add.add_argument("--comment", default=None, metavar="TEXT",
                        help="Add a comment to the archive")
     p_add.add_argument("--innosetup", nargs="?", const=True, default=None, metavar="FILE",
@@ -1032,13 +1085,33 @@ def main():
     p_ext.add_argument("-tmpr", action="store_true")
     p_ext.add_argument("-tmpd", nargs="?", const="", default=None, metavar="RUTA")
     p_ext.add_argument("-key", default=None, metavar="PASSWORD")
+    p_ext.add_argument("--overwrite", "-ow", default="+", choices=["+","-","p"],
+                       metavar="MODE",
+                       help="Overwrite mode: + always (default), - skip existing, p prompt")
     p_ext.add_argument("-f", action="append", default=None, metavar="PATTERN",
                        help="Extract matching files, flat (no folder structure)")
     p_ext.add_argument("-ff", action="append", default=None, metavar="PATTERN",
                        help="Extract matching files, preserving full path")
+    p_ext.add_argument("-y", "--yes", action="store_true",
+                       help="Answer yes to all prompts (same as --overwrite=+)")
     p_ext.add_argument("--innosetup", nargs="?", const=True, default=None, metavar="FILE")
     p_ext.add_argument("--log", nargs="?", const=True, default=None, metavar="ARCHIVO")
 
+
+    p_e = subparsers.add_parser("e", add_help=False)
+    p_e.add_argument("archive")
+    p_e.add_argument("-o", "--output", default=".")
+    p_e.add_argument("-cfg", nargs="+", default=["syc.ini"])
+    p_e.add_argument("-v", "--verbose", action="store_true")
+    p_e.add_argument("-vv", action="store_true")
+    p_e.add_argument("-tmpr", action="store_true")
+    p_e.add_argument("-tmpd", nargs="?", const="", default=None, metavar="RUTA")
+    p_e.add_argument("-key", default=None, metavar="PASSWORD")
+    p_e.add_argument("-f", action="append", default=None, metavar="PATTERN")
+    p_e.add_argument("--overwrite", "-ow", default="+", choices=["+","-","p"], metavar="MODE")
+    p_e.add_argument("-y", "--yes", action="store_true")
+    p_e.add_argument("--innosetup", nargs="?", const=True, default=None, metavar="FILE")
+    p_e.add_argument("--log", nargs="?", const=True, default=None, metavar="ARCHIVO")
 
     p_ls = subparsers.add_parser("ls", add_help=False)
     p_ls.add_argument("archive")
@@ -1057,7 +1130,7 @@ def main():
     p_test.add_argument("archive")
 
     # Si el comando no es reconocido, mostrar help
-    if sys.argv[1] not in ("a", "x", "l", "ls", "t", "m"):
+    if sys.argv[1] not in ("a", "x", "e", "l", "ls", "t", "m"):
         _print_help()
         sys.exit(1)
 
@@ -1079,6 +1152,12 @@ def main():
     if args.command == "a":
         cmd_add(args)
     elif args.command == "x":
+        cmd_extract(args)
+    elif args.command == "e":
+        # e = extract flat (no folder structure) — force -f "*" in flat mode
+        if not getattr(args, "f", None):
+            args.f = ["*"]
+        args.ff = None  # ensure flat mode
         cmd_extract(args)
     elif args.command == "l":
         cmd_list(args)

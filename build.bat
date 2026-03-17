@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-title SYC Builder
+title SYC Builder v0.1.0
 
 echo.
-echo  SYC Builder - Yade Bravo (YadeWira)
+echo  SYC Builder v0.1.0 - Yade Bravo (YadeWira)
 echo  =====================================
 echo.
 
@@ -129,6 +129,7 @@ if not "!PY64!"=="" (
     echo  -------------------------------------
     call :compile "!PY64!" x64 syc       syc.py
     call :compile "!PY64!" x64 sycg      sycg.py
+    call :compile "!PY64!" x64 psycg     psycg.py  --noconsole
     echo.
 )
 
@@ -137,12 +138,33 @@ if not "!PY32!"=="" (
     echo  -------------------------------------
     call :compile "!PY32!" x86 syc       syc.py
     call :compile "!PY32!" x86 sycg      sycg.py
+    call :compile "!PY32!" x86 psycg     psycg.py  --noconsole
     echo.
 )
 
 echo  Done! Output in: %OUTDIR%
 echo  -------------------------------------
 dir "%OUTDIR%\*.exe" 2>nul | findstr /i ".exe"
+echo.
+
+:: ── Copy support files to build\ ─────────────────────────────────────────────
+echo  Copying support files...
+copy /y "%SRCDIR%syc.ini"  "%OUTDIR%\" >nul 2>&1
+copy /y "%SRCDIR%EN.syl"   "%OUTDIR%\" >nul 2>&1
+copy /y "%SRCDIR%ES.syl"   "%OUTDIR%\" >nul 2>&1
+copy /y "%SRCDIR%FR.syl"   "%OUTDIR%\" >nul 2>&1
+copy /y "%SRCDIR%PT.syl"   "%OUTDIR%\" >nul 2>&1
+copy /y "%SRCDIR%RU.syl"   "%OUTDIR%\" >nul 2>&1
+if exist "%SRCDIR%icon.ico" copy /y "%SRCDIR%icon.ico" "%OUTDIR%\" >nul 2>&1
+
+:: Copy lang\ folder if it exists
+if exist "%SRCDIR%lang\" (
+    if not exist "%OUTDIR%\lang\" mkdir "%OUTDIR%\lang\"
+    xcopy /y /q "%SRCDIR%lang\*.syl" "%OUTDIR%\lang\" >nul 2>&1
+    echo   [OK] lang\ folder copied
+)
+
+echo   [OK] Support files copied
 echo.
 goto :end
 

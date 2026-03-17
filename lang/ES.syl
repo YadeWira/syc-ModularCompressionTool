@@ -1,0 +1,109 @@
+; SYC Language File - Español
+; Generated automatically — do not edit manually
+
+[window]
+compressing    = Comprimiendo
+extracting     = Extrayendo
+listing        = Listando
+verifying      = Verificando
+completed      = Completado
+elapsed        = transcurrido
+
+[metrics]
+processed      = Procesado:
+compressed     = Comprimido:
+bytes          = Bytes:
+elapsed        = Transcurrido:
+ratio          = Ratio:
+speed          = Velocidad:
+
+[buttons]
+background     = Segundo plano
+pause          = Pausar
+resume         = Reanudar
+cancel         = Cancelar
+close          = Cerrar
+close_in       = Cerrar ({n}s)
+
+[status]
+initializing   = Iniciando...
+done           = ✓  Completado en {time}
+error          = ✗  {msg}
+
+[confirm]
+cancel_title   = Cancelar
+cancel_msg     = ¿Cancelar la operación?
+
+[psycg]
+toolbar_open              = Abrir
+toolbar_create            = Crear
+toolbar_extract           = Extraer
+toolbar_extract_to        = Extraer a
+toolbar_test              = Verificar
+toolbar_info              = Info
+toolbar_close             = Cerrar
+nav_no_archive            = Sin archivo abierto
+nav_files                 = {n} archivos
+nav_ready                 = Listo
+nav_opened                = Abierto: {name}
+nav_done                  = Hecho ✓
+nav_error                 = Error
+nav_loading               = Cargando…
+nav_up                    = ↑ Subir
+col_name                  = Nombre
+col_original              = Original
+col_packed                = Comprimido
+col_ratio                 = Ratio
+col_method                = Método
+dlg_open_title            = Abrir Archivo SYC
+dlg_create_title          = Crear Archivo
+dlg_extract_title         = Extraer a
+dlg_props_title           = Propiedades del Archivo
+dlg_password              = Contraseña requerida
+dlg_arc_path              = Ruta del archivo:
+dlg_method                = Método:
+dlg_dest                  = Carpeta de destino:
+dlg_overwrite             = Sobreescribir:
+dlg_ow_always             = Siempre
+dlg_ow_skip               = Omitir
+dlg_ow_ask                = Preguntar
+dlg_ok                    = Aceptar
+dlg_cancel                = Cancelar
+dlg_create                = Crear
+dlg_extract               = Extraer
+dlg_close                 = Cerrar
+dlg_browse                = ...
+dlg_solid                 = Sólido (-tar)
+dlg_split                 = Dividir (-chunk)
+dlg_split_hint            = ej. 700MB, 4GB, 500KB
+dlg_encrypt               = Encriptar
+dlg_pass_label            = Contraseña (si encriptado):
+prop_path                 = Ruta:
+prop_size                 = Tamaño:
+prop_method               = Método:
+prop_mode                 = Modo:
+prop_files                = Archivos:
+prop_original             = Original:
+prop_packed               = Comprimido:
+prop_ratio                = Ratio:
+prop_comment              = Comentario:
+prop_encrypted            = Encriptado:
+prop_yes                  = Sí
+prop_solid_tar            = tar sólido
+prop_normal               = normal
+ctx_extract_sel           = Extraer seleccionados
+ctx_extract_to            = Extraer seleccionados a…
+ctx_copy_name             = Copiar nombre
+op_compressing            = Comprimiendo…
+op_extracting             = Extrayendo…
+op_testing                = Verificando integridad…
+op_failed                 = Operación fallida
+title                     = Gestor de Archivos SYC
+settings_title            = Configuración
+settings_theme            = Tema
+settings_theme_dark       = Oscuro
+settings_theme_white      = Claro
+settings_theme_auto       = Auto (sistema)
+settings_language         = Idioma
+settings_lang_note        = Coloca .syl en lang/ para más idiomas.
+settings_restart_note     = Reinicia para aplicar el nuevo tema.

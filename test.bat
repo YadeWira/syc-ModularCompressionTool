@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 chcp 65001 >nul 2>&1
-title SYC Test Suite v0.0.2
+title SYC Test Suite v0.1.0
 
 set "SRCDIR=%~dp0"
 set "PY=python.exe"
@@ -94,7 +94,7 @@ call :chk %errorlevel% "compress png normal"
 %PY% "%SYC%" a "%ARC%\json_v.syc" "%TEST%\nato" -m xpszf1 -v -cfg "%INI%"
 call :chk %errorlevel% "compress -v verbose"
 
-%PY% "%SYC%" a "%ARC%\json_comment.syc" "%TEST%\nato" -m xpszf1 --comment "Test b0.0.3" -cfg "%INI%"
+%PY% "%SYC%" a "%ARC%\json_comment.syc" "%TEST%\nato" -m xpszf1 --comment "Test b0.1.0" -cfg "%INI%"
 call :chk %errorlevel% "compress --comment"
 
 %PY% "%SYC%" a "%ARC%\json_hash.syc" "%TEST%\nato" -m xpszf1 --crc32 --md5 -cfg "%INI%"
@@ -245,8 +245,8 @@ mkdir "%OUT%\pmulti"
 call :chk %errorlevel% "extract multiple -f"
 
 mkdir "%OUT%\tar_f"
-%PY% "%SYC%" x "%ARC%\json_tar.syc" -o "%OUT%\tar_f" -f "nato_simple.json" -cfg "%INI%"
-call :chk %errorlevel% "-f on tar (warns + extracts all)"
+%PY% "%SYC%" x "%ARC%\json_tar.syc" -o "%OUT%\tar_f" -f "nato_simple.json" -cfg "%INI%" >nul 2>&1
+if !errorlevel! neq 0 ( call :ok "-f on tar correctly rejected" ) else ( call :fail "-f on tar rejected" "should fail" )
 
 :: =============================================================================
 call :sec "12. EXTRACT - multi-part"
@@ -318,6 +318,82 @@ if !errorlevel! neq 0 ( call :ok "-f no match rejected" ) else ( call :fail "-f 
 
 %PY% "%SYC%" a "%ARC%\spaces test.syc" "%TEST%\publicdomainvectors\jpg_24-bit\150dpi" -m xpszf1 -tar -cfg "%INI%"
 call :chk %errorlevel% "spaces in archive name"
+
+:: =============================================================================
+call :sec "17. NEW - COMPRESS FILTERS (-x / -n)"
+
+:: -x exclude: compress nato but exclude nested_dict
+%PY% "%SYC%" a "%ARC%\json_excl.syc" "%TEST%\nato" -m xpszf1 -x "nato_nested_dict.json" -cfg "%INI%"
+call :chk %errorlevel% "compress -x exclude pattern"
+call :exists "json_excl.syc created" "%ARC%\json_excl.syc"
+
+:: Verify excluded file is not in archive
+%PY% "%SYC%" l "%ARC%\json_excl.syc" >nul 2>&1
+call :chk %errorlevel% "list -x archive"
+
+:: -n include only: compress nato but only .json matching *nested*
+%PY% "%SYC%" a "%ARC%\json_incl.syc" "%TEST%\nato" -m xpszf1 -n "*nested*" -cfg "%INI%"
+call :chk %errorlevel% "compress -n include-only pattern"
+
+:: -x and -n combined
+%PY% "%SYC%" a "%ARC%\json_xn.syc" "%TEST%\nato" -m xpszf1 -n "*.json" -x "*nested*" -cfg "%INI%"
+call :chk %errorlevel% "compress -n + -x combined"
+
+:: -x with tar mode
+%PY% "%SYC%" a "%ARC%\tar_excl.syc" "%TEST%\nato" -m xpszf1 -tar -x "nato_simple.json" -cfg "%INI%"
+call :chk %errorlevel% "compress tar -x exclude"
+
+:: =============================================================================
+call :sec "18. NEW - EXTRACT OVERWRITE (-ow / -y)"
+
+:: Setup: extract once to populate dest
+mkdir "%OUT%\ow_base"
+%PY% "%SYC%" x "%ARC%\json_normal.syc" -o "%OUT%\ow_base" -cfg "%INI%" >nul 2>&1
+
+:: -ow - (skip existing)
+mkdir "%OUT%\ow_skip"
+%PY% "%SYC%" x "%ARC%\json_normal.syc" -o "%OUT%\ow_skip" -cfg "%INI%" >nul 2>&1
+%PY% "%SYC%" x "%ARC%\json_normal.syc" -o "%OUT%\ow_skip" -ow - -cfg "%INI%"
+call :chk %errorlevel% "extract -ow - (skip existing)"
+
+:: -ow + (always overwrite, default)
+mkdir "%OUT%\ow_force"
+%PY% "%SYC%" x "%ARC%\json_normal.syc" -o "%OUT%\ow_force" -cfg "%INI%" >nul 2>&1
+%PY% "%SYC%" x "%ARC%\json_normal.syc" -o "%OUT%\ow_force" -ow + -cfg "%INI%"
+call :chk %errorlevel% "extract -ow + (force overwrite)"
+
+:: -y (yes to all, same as -ow +)
+mkdir "%OUT%\ow_yes"
+%PY% "%SYC%" x "%ARC%\json_normal.syc" -o "%OUT%\ow_yes" -cfg "%INI%" >nul 2>&1
+%PY% "%SYC%" x "%ARC%\json_normal.syc" -o "%OUT%\ow_yes" -y -cfg "%INI%"
+call :chk %errorlevel% "extract -y (yes to all)"
+
+:: =============================================================================
+call :sec "19. NEW - e COMMAND (extract flat)"
+
+mkdir "%OUT%\e_out"
+%PY% "%SYC%" e "%ARC%\json_normal.syc" -o "%OUT%\e_out" -cfg "%INI%"
+call :chk %errorlevel% "e command (extract flat)"
+call :has_files "e command files" "%OUT%\e_out"
+
+:: Verify files are flat (no subdirs) - count files in root only
+set "_FLAT=0"
+for /f %%i in ('dir /b /a-d "%OUT%\e_out\*" 2^>nul ^| find /c /v ""') do set "_FLAT=%%i"
+set "_TOTAL=0"
+for /f %%i in ('dir /b /s /a-d "%OUT%\e_out\*" 2^>nul ^| find /c /v ""') do set "_TOTAL=%%i"
+if !_FLAT!==!_TOTAL! ( call :ok "e command: files are flat (no subdirs)" ) else ( call :fail "e command: files not flat" "root=!_FLAT! total=!_TOTAL!" )
+
+:: e with -f filter
+mkdir "%OUT%\e_filt"
+%PY% "%SYC%" e "%ARC%\json_normal.syc" -o "%OUT%\e_filt" -f "*.json" -cfg "%INI%"
+call :chk %errorlevel% "e command with -f filter"
+call :has_files "e -f files" "%OUT%\e_filt"
+
+:: e with png archive (multiple files)
+mkdir "%OUT%\e_png"
+%PY% "%SYC%" e "%ARC%\png_normal.syc" -o "%OUT%\e_png" -cfg "%INI%"
+call :chk %errorlevel% "e command png (25 files flat)"
+call :has_files "e png files" "%OUT%\e_png"
 
 :: =============================================================================
 set /a TOTAL=PASS+FAIL+SKIP

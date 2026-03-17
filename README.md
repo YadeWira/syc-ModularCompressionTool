@@ -51,17 +51,17 @@ sycg a backup.syc myfolder -m xpszx -tar
 
 ## Documentation
 
-| Document                                        | Description                             |
-| ----------------------------------------------- | --------------------------------------- |
-| [Getting Started](docs/getting-started.md)      | Installation, requirements, first steps |
-| [CLI Reference — syc](docs/syc-cli.md)          | All commands and flags for `syc.exe`    |
-| [GUI Reference — sycg](docs/sycg-gui.md)        | All flags exclusive to `sycg.exe`       |
-| [syc.ini Configuration](docs/syc-ini.md)        | Defining compressors and method chains  |
-| [Archive Format (.syc)](docs/archive-format.md) | Binary format specification             |
-| [Building from Source](docs/building.md)        | Using `build.bat` for x86/x64           |
-| [Language Files (.syl)](docs/language-files.md) | Localizing the GUI                      |
-| [Examples & Recipes](docs/examples.md)          | Common use cases and patterns           |
+| Document | Description |
+|---|---|
+| [Getting Started](docs/getting-started.md) | Installation, requirements, first steps |
+| [CLI Reference — syc](docs/syc-cli.md) | All commands and flags for `syc.exe` |
+| [GUI Reference — sycg](docs/sycg-gui.md) | All flags exclusive to `sycg.exe` |
+| [syc.ini Configuration](docs/syc-ini.md) | Defining compressors and method chains |
+| [Archive Format (.syc)](docs/archive-format.md) | Binary format specification |
+| [Building from Source](docs/building.md) | Using `build.bat` for x86/x64 |
+| [Language Files (.syl)](docs/language-files.md) | Localizing the GUI |
+| [Examples & Recipes](docs/examples.md) | Common use cases and patterns |
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for the full version history.
+See [CHANGELOG.md](../CHANGELOG.md) for the full version history.

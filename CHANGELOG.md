@@ -1,3 +1,47 @@
+# SYC v0.1.0 — Changelog
+
+## New Features
+
+- **`psycg`** — Full GUI archive manager (WinRAR/7-Zip style)
+  - Hierarchical file tree with expand/collapse folders
+  - Navigate into folders with double-click, ↑ Up button
+  - Toolbar: Open, Create, Extract, Extract To, Test, Info, Close, Settings
+  - Create Archive dialog: method, solid tar, CRC32, MD5, encrypt, split (-chunk)
+  - Extract dialog with overwrite modes: always, skip, ask
+  - Archive Properties dialog
+  - Context menu: extract selected, extract to, copy name
+  - Double-click file → extract to temp and open with default app
+  - Resize-aware: Name column stretches, fixed columns stay right-aligned
+  - Maximize respects taskbar (Windows `SPI_GETWORKAREA`)
+  - Smooth drag via absolute coordinates
+
+- **Language system (`psycg`)** — `.syl` files in `lang/` folder
+  - Ships with EN, ES, FR, PT, RU
+  - Live language switching via Settings dialog
+  - Inherits current language when launching `sycg`
+
+- **Settings dialog** — persistent `psycg.cfg`
+  - Theme: Dark / Light / Auto
+  - Language selector (auto-discovers `.syl` files in `lang/`)
+
+- **`-x PATTERN`** — Exclude files from compression (repeatable)
+- **`-n PATTERN`** — Include only matching files (repeatable)
+- **`-ow MODE`** — Overwrite control on extract: `+` always, `-` skip, `p` prompt
+- **`-y`** — Answer yes to all prompts
+- **`e` command** — Extract flat (no folder structure)
+- **`-m` is now required** — no silent fallback to undefined default method
+
+## Bug Fixes
+
+- Fixed `psycg` column "RatioMethod" (Ratio too narrow, Method left-aligned)
+- Fixed packed size overflow on multi-part archives in `psycg`
+- Fixed drag trembling (use absolute `x_root` coordinates)
+- Fixed maximize filling behind taskbar
+- Fixed `psycg` `??.syc` not opening after creation (resolves glob to first part)
+- Fixed `_here()` not defined when `Config()` initialized at module load
+
+---
+
 # SYC v0.0.3 — Changelog (fixes only)
 
 ## Bug Fixes
@@ -99,7 +143,7 @@
 
 ## Known Limitations (planned for future releases)
 
-- **Self-extracting archives (SFX)** — planned for v0.0.3
+- **Self-extracting archives (SFX)** — planned for future release
 - **`solid` field** in compressor definitions — parsed but not enforced
 - **`syc.groups`** — per-file-type compressor selection not implemented
 - **Multi-volume spanning with recovery records** — not implemented
