@@ -64,4 +64,4 @@ sycg a backup.syc myfolder -m xpszx -tar
 
 ## Changelog
 
-See [CHANGELOG.md](../CHANGELOG.md) for the full version history.
+See [CHANGELOG.md](CHANGELOG.md) for the full version history.
