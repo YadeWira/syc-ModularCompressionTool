@@ -75,7 +75,7 @@ def decrypt(blob: bytes, password: str) -> bytes:
     Lanza InvalidTag si la contraseña es incorrecta o los datos fueron alterados.
     """
     if len(blob) < 1 + 16 + 12:
-        raise ValueError("Bloque encriptado demasiado corto")
+        raise ValueError("Encrypted block too short")
 
     alg   = struct.unpack("<B", blob[0:1])[0]
     salt  = blob[1:17]
@@ -89,12 +89,12 @@ def decrypt(blob: bytes, password: str) -> bytes:
     elif alg == ALG_CC20:
         cipher = ChaCha20Poly1305(key)
     else:
-        raise ValueError(f"Algoritmo desconocido en archivo: 0x{alg:02x}")
+        raise ValueError(f"Unknown algorithm in file: 0x{alg:02x}")
 
     try:
         return cipher.decrypt(nonce, ciphertext, None)
     except Exception:
-        raise ValueError("Contraseña incorrecta o archivo corrupto")
+        raise ValueError("Wrong password or corrupted file")
 
 
 def alg_name(blob: bytes) -> str:

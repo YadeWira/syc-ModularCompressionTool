@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 chcp 65001 >nul 2>&1
-title SYC Test Suite v0.1.0
+title SYC Test Suite v0.1.1
 
 set "SRCDIR=%~dp0"
 set "PY=python.exe"
@@ -12,16 +12,25 @@ set "OUT=%SRCDIR%test-output"
 set "ARC=%SRCDIR%test-archives"
 set "LOG=%SRCDIR%test_results.log"
 
-:: Relaunch capturing output to log while showing on screen
+:: Relaunch capturing output to log while showing on screen (sin loop)
 if not defined SYC_RUNNING (
     set SYC_RUNNING=1
-    powershell -Command "& cmd /c \"\"%~f0\"\" 2>&1 | Tee-Object -FilePath \"%LOG%\""
+    cmd /s /c ""%~f0"" 2>&1 | powershell -NonInteractive -Command "$input | Tee-Object -FilePath '%LOG%'"
     goto :eof
 )
 
 set "PASS=0"
 set "FAIL=0"
 set "SKIP=0"
+
+:: Atajos a subcarpetas de test-files-main
+set "NATO=%TEST%\nato"
+set "KODAK_PNG=%TEST%\Kodak-Photo-CD\png_24-bit"
+set "KODAK_BMP=%TEST%\Kodak-Photo-CD\bmp_24-bit"
+set "PDV_JPG_150=%TEST%\publicdomainvectors\jpg_24-bit\150dpi"
+set "PDV_PNG_150=%TEST%\publicdomainvectors\png_24-bit\150dpi"
+set "UNSPLASH_JPG=%TEST%\Unsplash\jpg_original"
+set "WCDOGG_PNG=%TEST%\wcDogg\png_24-bit_limited-palette\150dpi"
 
 if not exist "%TEST%" ( echo [ERROR] test-files-main not found & pause & goto :eof )
 
@@ -30,7 +39,7 @@ if exist "%ARC%" rd /s /q "%ARC%" >nul 2>&1
 mkdir "%OUT%" & mkdir "%ARC%"
 
 echo.
-echo  SYC Test Suite
+echo  SYC Test Suite v0.1.1
 echo  ==================================
 echo  SYC:  %SYC%
 echo  Data: %TEST%
@@ -70,6 +79,14 @@ goto :eof
 set "_C=0"
 for /f %%i in ('dir /b /s /a-d "%~2\*" 2^>nul ^| find /c /v ""') do set "_C=%%i"
 if !_C! GTR 0 ( call :ok "%~1 (!_C! files)" ) else ( call :fail "%~1" "empty" )
+goto :eof
+
+:roundtrip
+set "_RT_IN=0"
+for /f %%i in ('dir /b /s /a-d "%~2\*" 2^>nul ^| find /c /v ""') do set "_RT_IN=%%i"
+set "_RT_OUT=0"
+for /f %%i in ('dir /b /s /a-d "%~3\*" 2^>nul ^| find /c /v ""') do set "_RT_OUT=%%i"
+if !_RT_IN!==!_RT_OUT! ( call :ok "%~1 round-trip: !_RT_IN! files" ) else ( call :fail "%~1 round-trip" "!_RT_IN! in vs !_RT_OUT! out" )
 goto :eof
 
 :tests
@@ -394,6 +411,140 @@ mkdir "%OUT%\e_png"
 %PY% "%SYC%" e "%ARC%\png_normal.syc" -o "%OUT%\e_png" -cfg "%INI%"
 call :chk %errorlevel% "e command png (25 files flat)"
 call :has_files "e png files" "%OUT%\e_png"
+
+:: =============================================================================
+:: =============================================================================
+call :sec "20. BLOCK MODE"
+
+:: -block sin -tar: implica solid mode automaticamente
+:: PDV png 150dpi (20 PNG) + -block 5MB garantiza 2+ bloques
+%PY% "%SYC%" a "%ARC%\block_implicit.syc" "%PDV_PNG_150%" -m xpszf1 -block 5MB -cfg "%INI%"
+call :chk %errorlevel% "compress -block (implicit tar)"
+call :exists "block_implicit.syc created" "%ARC%\block_implicit.syc"
+
+mkdir "%OUT%\block_implicit"
+%PY% "%SYC%" x "%ARC%\block_implicit.syc" -o "%OUT%\block_implicit" -cfg "%INI%"
+call :chk %errorlevel% "extract -block implicit"
+call :has_files "block_implicit files" "%OUT%\block_implicit"
+call :roundtrip "block implicit" "%PDV_PNG_150%" "%OUT%\block_implicit"
+
+:: -block con -tar explicito
+%PY% "%SYC%" a "%ARC%\block_tar.syc" "%PDV_PNG_150%" -m xpszf1 -tar -block 5MB -cfg "%INI%"
+call :chk %errorlevel% "compress -tar -block"
+call :exists "block_tar.syc created" "%ARC%\block_tar.syc"
+
+mkdir "%OUT%\block_tar"
+%PY% "%SYC%" x "%ARC%\block_tar.syc" -o "%OUT%\block_tar" -cfg "%INI%"
+call :chk %errorlevel% "extract -tar -block"
+call :has_files "block_tar files" "%OUT%\block_tar"
+call :roundtrip "block tar" "%PDV_PNG_150%" "%OUT%\block_tar"
+
+:: -block con archivos grandes (Kodak BMP 24-bit ~7MB cada uno)
+%PY% "%SYC%" a "%ARC%\block_bmp.syc" "%KODAK_BMP%" -m xpszf1 -tar -block 10MB -cfg "%INI%"
+call :chk %errorlevel% "compress -block bmp (large files)"
+call :exists "block_bmp.syc created" "%ARC%\block_bmp.syc"
+
+mkdir "%OUT%\block_bmp"
+%PY% "%SYC%" x "%ARC%\block_bmp.syc" -o "%OUT%\block_bmp" -cfg "%INI%"
+call :chk %errorlevel% "extract -block bmp"
+call :has_files "block_bmp files" "%OUT%\block_bmp"
+call :roundtrip "block bmp" "%KODAK_BMP%" "%OUT%\block_bmp"
+
+:: -block con -tmpd
+%PY% "%SYC%" a "%ARC%\block_tmpd.syc" "%NATO%" -m xpszf1 -block 2MB -tmpd "%TEMP%" -cfg "%INI%"
+call :chk %errorlevel% "compress -block -tmpd"
+
+mkdir "%OUT%\block_tmpd"
+%PY% "%SYC%" x "%ARC%\block_tmpd.syc" -o "%OUT%\block_tmpd" -cfg "%INI%"
+call :chk %errorlevel% "extract -block -tmpd"
+call :has_files "block_tmpd files" "%OUT%\block_tmpd"
+
+:: -block + cifrado AES256
+%PY% "%SYC%" a "%ARC%\block_enc.syc" "%NATO%" -m xpszf1 -tar -block 2MB -key TestPass123 -cfg "%INI%"
+call :chk %errorlevel% "compress -block -key"
+
+mkdir "%OUT%\block_enc"
+%PY% "%SYC%" x "%ARC%\block_enc.syc" -o "%OUT%\block_enc" -key TestPass123 -cfg "%INI%"
+call :chk %errorlevel% "extract -block encrypted"
+call :has_files "block_enc files" "%OUT%\block_enc"
+
+:: -block + --comment + list
+%PY% "%SYC%" a "%ARC%\block_comment.syc" "%NATO%" -m xpszf1 -block 2MB --comment "block test" -cfg "%INI%"
+call :chk %errorlevel% "compress -block --comment"
+
+%PY% "%SYC%" l "%ARC%\block_comment.syc"
+call :chk %errorlevel% "list -block archive"
+
+:: =============================================================================
+call :sec "21. DEDUP MODE (-dd)"
+
+:: -dd basico: sin duplicados reales, debe funcionar igual que modo normal
+%PY% "%SYC%" a "%ARC%\dd_basic.syc" "%NATO%" -m xpszf1 -dd -cfg "%INI%"
+call :chk %errorlevel% "compress -dd basic"
+call :exists "dd_basic.syc created" "%ARC%\dd_basic.syc"
+
+mkdir "%OUT%\dd_basic"
+%PY% "%SYC%" x "%ARC%\dd_basic.syc" -o "%OUT%\dd_basic" -cfg "%INI%"
+call :chk %errorlevel% "extract -dd basic"
+call :has_files "dd_basic files" "%OUT%\dd_basic"
+call :roundtrip "dd nato" "%NATO%" "%OUT%\dd_basic"
+
+:: -dd con chunk size 1MB
+%PY% "%SYC%" a "%ARC%\dd_1mb.syc" "%NATO%" -m xpszf1 -dd 1MB -cfg "%INI%"
+call :chk %errorlevel% "compress -dd 1MB chunks"
+
+mkdir "%OUT%\dd_1mb"
+%PY% "%SYC%" x "%ARC%\dd_1mb.syc" -o "%OUT%\dd_1mb" -cfg "%INI%"
+call :chk %errorlevel% "extract -dd 1MB"
+call :roundtrip "dd 1MB" "%NATO%" "%OUT%\dd_1mb"
+
+:: -dd con dataset de imagenes (wcDogg paleta limitada: buen candidato por chunks similares)
+%PY% "%SYC%" a "%ARC%\dd_imgs.syc" "%WCDOGG_PNG%" -m xpszf1 -dd 1MB -cfg "%INI%"
+call :chk %errorlevel% "compress -dd images (1MB chunks)"
+call :exists "dd_imgs.syc created" "%ARC%\dd_imgs.syc"
+
+mkdir "%OUT%\dd_imgs"
+%PY% "%SYC%" x "%ARC%\dd_imgs.syc" -o "%OUT%\dd_imgs" -cfg "%INI%"
+call :chk %errorlevel% "extract -dd images"
+call :roundtrip "dd images" "%WCDOGG_PNG%" "%OUT%\dd_imgs"
+
+:: -dd con -block (combinar dedup + bloques independientes)
+%PY% "%SYC%" a "%ARC%\dd_block.syc" "%PDV_PNG_150%" -m xpszf1 -dd 4MB -block 10MB -cfg "%INI%"
+call :chk %errorlevel% "compress -dd -block"
+call :exists "dd_block.syc created" "%ARC%\dd_block.syc"
+
+mkdir "%OUT%\dd_block"
+%PY% "%SYC%" x "%ARC%\dd_block.syc" -o "%OUT%\dd_block" -cfg "%INI%"
+call :chk %errorlevel% "extract -dd -block"
+call :has_files "dd_block files" "%OUT%\dd_block"
+call :roundtrip "dd+block" "%PDV_PNG_150%" "%OUT%\dd_block"
+
+:: -dd con --comment
+%PY% "%SYC%" a "%ARC%\dd_comment.syc" "%NATO%" -m xpszf1 -dd --comment "dedup test" -cfg "%INI%"
+call :chk %errorlevel% "compress -dd --comment"
+
+:: list en archivo dedup (guard por si compress fallo)
+if exist "%ARC%\dd_basic.syc" (
+    %PY% "%SYC%" l "%ARC%\dd_basic.syc"
+    call :chk %errorlevel% "list -dd archive"
+) else ( call :skip "list -dd archive (dd_basic.syc missing)" )
+
+:: -dd con duplicados reales: 3 copias exactas del mismo archivo + 1 diferente
+mkdir "%TEMP%\syc_dd_test" >nul 2>&1
+copy "%NATO%\nato_simple.json"      "%TEMP%\syc_dd_test\copy1.json" >nul 2>&1
+copy "%NATO%\nato_simple.json"      "%TEMP%\syc_dd_test\copy2.json" >nul 2>&1
+copy "%NATO%\nato_simple.json"      "%TEMP%\syc_dd_test\copy3.json" >nul 2>&1
+copy "%NATO%\nato_nested_dict.json" "%TEMP%\syc_dd_test\other.json" >nul 2>&1
+
+%PY% "%SYC%" a "%ARC%\dd_dups.syc" "%TEMP%\syc_dd_test" -m xpszf1 -dd -cfg "%INI%"
+call :chk %errorlevel% "compress -dd real duplicates"
+
+mkdir "%OUT%\dd_dups"
+%PY% "%SYC%" x "%ARC%\dd_dups.syc" -o "%OUT%\dd_dups" -cfg "%INI%"
+call :chk %errorlevel% "extract -dd real duplicates"
+call :has_files "dd_dups files" "%OUT%\dd_dups"
+
+rd /s /q "%TEMP%\syc_dd_test" >nul 2>&1
 
 :: =============================================================================
 set /a TOTAL=PASS+FAIL+SKIP

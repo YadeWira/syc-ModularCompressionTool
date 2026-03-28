@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-title SYC Builder v0.1.0
+title SYC Builder v0.2.0
 
 echo.
-echo  SYC Builder v0.1.0 - Yade Bravo (YadeWira)
+echo  SYC Builder v0.2.0 - Yade Bravo (YadeWira)
 echo  =====================================
 echo.
 
@@ -14,6 +14,7 @@ if not exist "%OUTDIR%" mkdir "%OUTDIR%"
 set "PY64="
 set "PY32="
 
+:: Find Python x64 (Python 3.8 first — required for Windows 7 compatibility)
 for %%P in (
     "%USERPROFILE%\AppData\Local\Programs\Python\Python38\python.exe"
     "C:\Python38\python.exe"
@@ -34,7 +35,11 @@ for %%P in (
     )
 )
 
+:: Find Python x86 (Python 3.8-32 first — required for Windows 7 compatibility)
 for %%P in (
+    "%USERPROFILE%\AppData\Local\Programs\Python\Python38-32\python.exe"
+    "C:\Python38-32\python.exe"
+    "C:\Program Files (x86)\Python38\python.exe"
     "%USERPROFILE%\AppData\Local\Programs\Python\Python312-32\python.exe"
     "%USERPROFILE%\AppData\Local\Programs\Python\Python311-32\python.exe"
     "%USERPROFILE%\AppData\Local\Programs\Python\Python310-32\python.exe"
@@ -42,9 +47,6 @@ for %%P in (
     "C:\Python311-32\python.exe"
     "C:\Program Files (x86)\Python312\python.exe"
     "C:\Program Files (x86)\Python311\python.exe"
-    "%USERPROFILE%\AppData\Local\Programs\Python\Python38-32\python.exe"
-    "C:\Python38-32\python.exe"
-    "C:\Program Files (x86)\Python38\python.exe"
 ) do (
     if exist %%P (
         if "!PY32!"=="" (
@@ -54,6 +56,7 @@ for %%P in (
     )
 )
 
+:: Fallback: python del PATH
 if "!PY64!"=="" (
     python -c "import struct,sys; sys.exit(0 if struct.calcsize('P')*8==64 else 1)" >nul 2>&1
     if !errorlevel!==0 (
@@ -63,6 +66,7 @@ if "!PY64!"=="" (
     )
 )
 
+:: Show detected installations and warn if not Python 3.8
 echo  Detecting Python installations...
 echo.
 
@@ -70,14 +74,26 @@ if "!PY64!"=="" (
     echo   [--] Python x64 : NOT FOUND
 ) else (
     for /f "tokens=2 delims= " %%v in ('"!PY64!" --version 2^>^&1') do set "VER64=%%v"
-    echo   [OK] Python x64 : !PY64! (!VER64!)
+    echo   [OK] Python x64 : !PY64! ^(!VER64!^)
+    "!PY64!" -c "import sys; v=sys.version_info; sys.exit(0 if v.major==3 and v.minor==8 else 1)" >nul 2>&1
+    if !errorlevel! neq 0 (
+        echo   [WARN] x64 is NOT Python 3.8 - the exe will NOT run on Windows 7
+    ) else (
+        echo   [OK]  x64 is Python 3.8 - Windows 7 compatible
+    )
 )
 
 if "!PY32!"=="" (
     echo   [--] Python x86 : NOT FOUND
 ) else (
     for /f "tokens=2 delims= " %%v in ('"!PY32!" --version 2^>^&1') do set "VER32=%%v"
-    echo   [OK] Python x86 : !PY32! (!VER32!)
+    echo   [OK] Python x86 : !PY32! ^(!VER32!^)
+    "!PY32!" -c "import sys; v=sys.version_info; sys.exit(0 if v.major==3 and v.minor==8 else 1)" >nul 2>&1
+    if !errorlevel! neq 0 (
+        echo   [WARN] x86 is NOT Python 3.8 - the exe will NOT run on Windows 7
+    ) else (
+        echo   [OK]  x86 is Python 3.8 - Windows 7 compatible
+    )
 )
 
 echo.
@@ -87,18 +103,21 @@ if "!PY64!"=="" if "!PY32!"=="" (
     goto :end
 )
 
-:: Dependencias base (siempre disponibles)
-set "DEPS_BASE=pyinstaller pillow cryptography reedsolo"
-:: psutil: puede fallar en x86 sin Visual C++ Build Tools
-:: Se intenta instalar, si falla se continua sin ella (hay fallback en syc.py)
-set "DEPS_OPTIONAL=psutil"
+:: Dependencies
+:: pyinstaller  - compile to exe
+:: pillow       - thumbnails in psycg
+:: cryptography - AES256 / ChaCha20 encryption
+:: psutil       - CPU/RAM info in help (optional, syc.py has a fallback)
+set "DEPS_BASE=pyinstaller pillow cryptography"
 
 if not "!PY64!"=="" (
     echo  Installing x64 dependencies...
-    "!PY64!" -m pip install %DEPS_BASE% %DEPS_OPTIONAL% -q --disable-pip-version-check
+    "!PY64!" -m pip install %DEPS_BASE% -q --disable-pip-version-check
+    "!PY64!" -m pip install psutil -q --disable-pip-version-check >nul 2>&1
     if !errorlevel! neq 0 (
-        echo   [WARN] psutil failed, installing without it...
-        "!PY64!" -m pip install %DEPS_BASE% -q --disable-pip-version-check
+        echo   [INFO] psutil not available for x64 - CPU/RAM info will be limited.
+    ) else (
+        echo   [OK] psutil x64 installed.
     )
     echo   [OK] x64 ready.
 )
@@ -106,7 +125,6 @@ if not "!PY64!"=="" (
 if not "!PY32!"=="" (
     echo  Installing x86 dependencies...
     "!PY32!" -m pip install %DEPS_BASE% -q --disable-pip-version-check
-    :: psutil x86 requiere Visual C++ Build Tools - intentar solo si ya esta instalado
     "!PY32!" -c "import psutil" >nul 2>&1
     if !errorlevel! neq 0 (
         echo   [INFO] Trying psutil x86 with prebuilt wheel...
@@ -124,21 +142,22 @@ if not "!PY32!"=="" (
 
 echo.
 
+:: Compile
 if not "!PY64!"=="" (
     echo  Building x64...
     echo  -------------------------------------
-    call :compile "!PY64!" x64 syc       syc.py
-    call :compile "!PY64!" x64 sycg      sycg.py
-    call :compile "!PY64!" x64 psycg     psycg.py  --noconsole
+    call :compile "!PY64!" x64 syc   syc.py
+    call :compile "!PY64!" x64 sycg  sycg.py
+    call :compile "!PY64!" x64 psycg psycg.py --noconsole
     echo.
 )
 
 if not "!PY32!"=="" (
     echo  Building x86...
     echo  -------------------------------------
-    call :compile "!PY32!" x86 syc       syc.py
-    call :compile "!PY32!" x86 sycg      sycg.py
-    call :compile "!PY32!" x86 psycg     psycg.py  --noconsole
+    call :compile "!PY32!" x86 syc   syc.py
+    call :compile "!PY32!" x86 sycg  sycg.py
+    call :compile "!PY32!" x86 psycg psycg.py --noconsole
     echo.
 )
 
@@ -147,24 +166,42 @@ echo  -------------------------------------
 dir "%OUTDIR%\*.exe" 2>nul | findstr /i ".exe"
 echo.
 
-:: ── Copy support files to build\ ─────────────────────────────────────────────
+:: Copy support files
 echo  Copying support files...
-copy /y "%SRCDIR%syc.ini"  "%OUTDIR%\" >nul 2>&1
-copy /y "%SRCDIR%EN.syl"   "%OUTDIR%\" >nul 2>&1
-copy /y "%SRCDIR%ES.syl"   "%OUTDIR%\" >nul 2>&1
-copy /y "%SRCDIR%FR.syl"   "%OUTDIR%\" >nul 2>&1
-copy /y "%SRCDIR%PT.syl"   "%OUTDIR%\" >nul 2>&1
-copy /y "%SRCDIR%RU.syl"   "%OUTDIR%\" >nul 2>&1
-if exist "%SRCDIR%icon.ico" copy /y "%SRCDIR%icon.ico" "%OUTDIR%\" >nul 2>&1
 
-:: Copy lang\ folder if it exists
+if exist "%SRCDIR%syc.ini" (
+    copy /y "%SRCDIR%syc.ini" "%OUTDIR%\" >nul 2>&1
+    echo   [OK] syc.ini
+) else (
+    echo   [WARN] syc.ini not found
+)
+
+if exist "%SRCDIR%icon.ico" (
+    copy /y "%SRCDIR%icon.ico" "%OUTDIR%\" >nul 2>&1
+    echo   [OK] icon.ico
+)
+
+:: lang\ folder (primary language file location)
 if exist "%SRCDIR%lang\" (
     if not exist "%OUTDIR%\lang\" mkdir "%OUTDIR%\lang\"
     xcopy /y /q "%SRCDIR%lang\*.syl" "%OUTDIR%\lang\" >nul 2>&1
-    echo   [OK] lang\ folder copied
+    set "_SYLS=0"
+    for %%f in ("%OUTDIR%\lang\*.syl") do set /a "_SYLS+=1"
+    echo   [OK] lang\ - !_SYLS! language files
+) else (
+    :: Fallback: loose .syl files in root (legacy layout)
+    set "_SYLS=0"
+    for %%f in ("%SRCDIR%*.syl") do (
+        copy /y "%%f" "%OUTDIR%\" >nul 2>&1
+        set /a "_SYLS+=1"
+    )
+    if !_SYLS! GTR 0 (
+        echo   [OK] !_SYLS! language files ^(from root, no lang\ folder found^)
+    ) else (
+        echo   [WARN] No .syl language files found
+    )
 )
 
-echo   [OK] Support files copied
 echo.
 goto :end
 

@@ -31,7 +31,7 @@ def _parse_chunk_size(s: str) -> int:
     s = s.strip().upper()
     m = re.match(r'^(\d+(?:\.\d+)?)\s*(KB|MB|GB|B)?$', s)
     if not m:
-        raise ValueError(f"Tamaño de chunk inválido: {s!r}. Usa ej: 4MB, 700KB, 1GB")
+        raise ValueError(f"Invalid chunk size: {s!r}. Use e.g. 4MB, 700KB, 1GB")
     n = float(m.group(1))
     unit = m.group(2) or 'B'
     multipliers = {'B': 1, 'KB': 1024, 'MB': 1024**2, 'GB': 1024**3}
@@ -226,16 +226,16 @@ def read_tar_parts(pattern: str, password: str = None):
 
     parts = _glob_parts(pattern)
     if not parts:
-        raise FileNotFoundError(f"No se encontraron partes para: {pattern}")
+        raise FileNotFoundError(f"No parts found for: {pattern}")
 
     # Leer parte 1
     with open(parts[0], "rb") as f:
         magic = f.read(4)
         if magic != MAGIC:
-            raise ValueError(f"Parte 1 inválida: magic incorrecto")
+            raise ValueError("Part 1 invalid: bad magic")
         flag = struct.unpack("<B", f.read(1))[0]
-        if flag != FLAG_TAR:
-            raise ValueError("Parte 1 no es modo tar")
+        if not (flag & FLAG_TAR):
+            raise ValueError("Part 1 is not tar mode")
         method_len = struct.unpack("<H", f.read(2))[0]
         method = f.read(method_len).decode("utf-8")
         num_files = struct.unpack("<I", f.read(4))[0]
@@ -255,7 +255,7 @@ def read_tar_parts(pattern: str, password: str = None):
         frag1 = f.read()
 
     if len(parts) != total_parts:
-        raise ValueError(f"Se esperaban {total_parts} partes, se encontraron {len(parts)}")
+        raise ValueError(f"Expected {total_parts} parts, found {len(parts)}")
 
     # Leer partes 2..N
     fragments = [frag1]
@@ -263,12 +263,28 @@ def read_tar_parts(pattern: str, password: str = None):
         with open(part_path, "rb") as f:
             magic = f.read(4)
             if magic != MAGIC_PART:
-                raise ValueError(f"Parte inválida en {part_path}")
+                raise ValueError(f"Invalid part: {part_path}")
             part_num   = struct.unpack("<I", f.read(4))[0]
             total_p    = struct.unpack("<I", f.read(4))[0]
             fragments.append(f.read())
 
-    archive.tar_data = b"".join(fragments)
+    # Write assembled tar to a temp file to avoid double-copy in RAM.
+    # The caller (cmd_extract) uses decompress_stream which reads from file,
+    # so we store the path instead of bytes when possible.
+    import tempfile as _tf
+    tmp = _tf.NamedTemporaryFile(delete=False, suffix=".tar", prefix="syc_assemble_")
+    try:
+        for frag in fragments:
+            tmp.write(frag)
+        tmp.flush()
+        tmp.seek(0)
+        archive.tar_data = tmp.read()  # still needed for compatibility
+    finally:
+        tmp.close()
+        try:
+            os.remove(tmp.name)
+        except OSError:
+            pass
     return archive
 
 
@@ -280,7 +296,7 @@ def read_normal_parts(pattern: str, password: str = None) -> list:
     from archive import SycArchive
     parts = _glob_parts(pattern)
     if not parts:
-        raise FileNotFoundError(f"No se encontraron partes para: {pattern}")
+        raise FileNotFoundError(f"No parts found for: {pattern}")
     return [SycArchive.read(p, password=password) for p in parts]
 
 
@@ -305,4 +321,4 @@ def peek_tar_mode(path: str) -> bool:
         if magic != MAGIC:
             return False
         flag = struct.unpack("<B", f.read(1))[0]
-        return flag == FLAG_TAR
+        return bool(flag & FLAG_TAR)

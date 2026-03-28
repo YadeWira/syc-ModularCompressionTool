@@ -46,7 +46,14 @@ class Lang:
                         continue
                     if "=" in line:
                         k, _, v = line.partition("=")
-                        self._strings[f"{section}.{k.strip().lower()}"] = v.strip()
+                        k = k.strip().lower()
+                        v = v.strip()
+                        if section == "sycg":
+                            # "window_compressing" → "window.compressing"
+                            # matches the keys sycg looks up directly
+                            self._strings[k.replace("_", ".", 1)] = v
+                        else:
+                            self._strings[f"{section}.{k}"] = v
 
     def t(self, key: str, **kwargs) -> str:
         s = self._strings.get(key, key)
@@ -129,24 +136,31 @@ class P:
 
 class SycWindow:
     # Dark theme defaults (overridden by _apply_theme)
-    BG="#1C1C1C"; BG2="#252525"; BG3="#2E2E2E"
+    BG="#1C1C1C"; BG2="#252525"; BG3="#2E2E2E"; BG4="#333333"; BG5="#3A3A3A"
     FG="#D8D8D8"; DIM="#666666"
     GREEN="#5DC85D"; BLUE="#4B9EE8"; YELLOW="#DDB84A"; RED="#D95F5F"
+    BLUE_DIM="#1E3A5F"; HIGHLIGHT="#383838"; SHADOW="#111111"
+    BORDER="#3A3A3A"; BORDER_LIGHT="#444444"
     F=("Consolas",9); FB=("Consolas",9,"bold"); FS=("Consolas",8)
 
     _THEMES = {
-        "dark":  dict(BG="#1C1C1C",BG2="#252525",BG3="#2E2E2E",
+        "dark":  dict(BG="#1C1C1C",BG2="#252525",BG3="#2E2E2E",BG4="#333333",BG5="#3A3A3A",
                       FG="#D8D8D8",DIM="#666666",
                       GREEN="#5DC85D",BLUE="#4B9EE8",YELLOW="#DDB84A",RED="#D95F5F",
-                      TB="#111111",TB_FG="#888888"),
-        "white": dict(BG="#F5F5F5",BG2="#E8E8E8",BG3="#DCDCDC",
+                      BLUE_DIM="#1E3A5F",
+                      TB="#111111",TB_FG="#888888",
+                      BORDER="#3A3A3A",BORDER_LIGHT="#444444",
+                      SHADOW="#111111",HIGHLIGHT="#383838"),
+        "white": dict(BG="#F5F5F5",BG2="#E8E8E8",BG3="#DCDCDC",BG4="#D0D0D0",BG5="#C4C4C4",
                       FG="#1A1A1A",DIM="#888888",
                       GREEN="#2E7D32",BLUE="#1565C0",YELLOW="#F57F17",RED="#C62828",
-                      TB="#D0D0D0",TB_FG="#444444"),
+                      BLUE_DIM="#C8DDEE",
+                      TB="#D0D0D0",TB_FG="#444444",
+                      BORDER="#BBBBBB",BORDER_LIGHT="#CACACA",
+                      SHADOW="#AAAAAA",HIGHLIGHT="#F0F0F0"),
     }
 
     def _apply_theme(self, theme: str):
-        # Auto: detect Windows dark/light mode
         if theme == "auto":
             try:
                 import winreg
@@ -160,8 +174,8 @@ class SycWindow:
         t = self._THEMES.get(theme, self._THEMES["dark"])
         for k, v in t.items():
             setattr(self, k, v)
-        self._tb_bg  = t.get("TB",  "#111111")
-        self._tb_fg  = t.get("TB_FG","#888888")
+        self._tb_bg = t.get("TB",  "#111111")
+        self._tb_fg = t.get("TB_FG", "#888888")
 
     def __init__(self, title, op, args, auto_close=False,
                  no_cancel=False, no_pause=False, no_background=False,
@@ -176,13 +190,13 @@ class SycWindow:
         r=self.root=tk.Tk()
         r.overrideredirect(True)
         r.configure(bg=self.BG)
-        # Apply theme border color too
-        r.configure(highlightbackground=self.BG3)
+        r.configure(highlightbackground=self.BORDER)
         W,H=500,278
         sx,sy=r.winfo_screenwidth(),r.winfo_screenheight()
         r.geometry(f"{W}x{H}+{(sx-W)//2}+{(sy-H)//2}")
-        r.configure(highlightbackground=self.BG3,highlightthickness=1)
+        r.configure(highlightbackground=self.BORDER, highlightthickness=1)
         self._drag_x=0; self._drag_y=0; self._title_text=title
+        # Rounded corners
         # Icono de ventana (taskbar)
         if self.icon_path and os.path.exists(self.icon_path):
             try:
@@ -289,7 +303,7 @@ class SycWindow:
         style=ttk.Style(); style.theme_use("default")
         style.configure("S.Horizontal.TProgressbar",
             troughcolor=self.BG3,background=self.GREEN,
-            bordercolor=self.BG,lightcolor=self.GREEN,darkcolor=self.GREEN,thickness=14)
+            bordercolor=self.BG2,lightcolor=self.GREEN,darkcolor=self.GREEN,thickness=12)
         self.bar=ttk.Progressbar(pf,style="S.Horizontal.TProgressbar",
             orient="horizontal",mode="determinate",maximum=100)
         self.bar.pack(fill="x")
@@ -435,7 +449,7 @@ def main():
             import os as _os; threads = _os.cpu_count() or 1
             cpu_str = f"CPU: {threads}T"; ram_str = ""
         arch = "x64" if struct.calcsize("P")*8 == 64 else "x86"
-        hdr = f"SYC v0.1.0 {arch} | by Yade Bravo (YadeWira) | {cpu_str}"
+        hdr = f"SYC v0.2.0 {arch} | by Yade Bravo (YadeWira) | {cpu_str}"
         if ram_str: hdr += f" | {ram_str}"
         print(hdr)
         print("""SYCG - GUI wrapper for SYC

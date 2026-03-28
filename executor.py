@@ -97,7 +97,7 @@ class ProgressMonitor:
                                 f" ({pct:.1f}%)"
                             )
                         else:
-                            parts.append(f"{self._fmt_size(written)} escrito")
+                            parts.append(f"{self._fmt_size(written)} written")
 
                         dt = now - last_time
                         if dt > 0.1 and written > last_written:
@@ -179,6 +179,9 @@ def _detect_mode(template: str) -> str:
         return "stdio"
     if stdin and dpf and not ddf:
         return "mixed"
+    # Descompresión: archivo de entrada ($$arcpackedfile$$) + stdout como salida
+    if dpf and stdout and not stdin and not ddf:
+        return "reverse_mixed"
     return "tempfile"
 
 
@@ -188,8 +191,8 @@ def _run_cmd(cmd: str, input_data: bytes = None, capture_stdout: bool = True,
              passthrough: bool = False, cwd: str = None) -> bytes:
     """
     Ejecuta un comando como string.
-    passthrough=True (-vv): stderr Y stdout (cuando no se captura) van a la consola.
-    passthrough=False: stderr Y stdout se capturan silenciosamente.
+    passthrough=True (-vv): stderr and stdout (when not captured) go to console.
+    passthrough=False: stderr and stdout are silently captured.
     stdout de datos siempre se captura si capture_stdout=True.
     """
     logger.debug(f"CMD: {cmd}")
@@ -213,7 +216,7 @@ def _run_cmd(cmd: str, input_data: bytes = None, capture_stdout: bool = True,
         )
     if result.returncode != 0:
         raise ExecutionError(
-            f"Compresor falló (código {result.returncode}):\n"
+            f"Compressor failed (exit {result.returncode}):\n"
             f"  CMD: {cmd}"
         )
     return result.stdout if capture_stdout else b""
@@ -242,6 +245,31 @@ def _run_mixed(cmd: str, input_data: bytes, packedfile: str,
         raise ExecutionError(f"Mixed mode: compressor did not generate: {packedfile}")
     with open(packedfile, "rb") as f:
         return f.read()
+
+
+def _run_reverse_mixed(cmd: str, input_data: bytes, packedfile: str,
+                       passthrough: bool = False,
+                       monitor: "ProgressMonitor" = None) -> bytes:
+    """Modo reverse_mixed: escribe input a $$arcpackedfile$$, captura stdout como salida.
+    Usado por xprecomp decode (lee archivo, escribe a stdout con -)."""
+    # Guardar datos en packedfile temporal
+    with open(packedfile, "wb") as f:
+        f.write(input_data)
+
+    clean = cmd.replace("<stdout>", "").replace("<stdin>", "").strip()
+    # Reemplazar - al final si quedó como argumento de salida
+    # xtool decode -t75p packed.tmp -   <- el '-' final es stdout
+
+    if monitor:
+        monitor.watch_file = packedfile
+        monitor.start()
+    try:
+        result = _run_cmd(clean, input_data=None, capture_stdout=True,
+                          passthrough=passthrough)
+    finally:
+        if monitor:
+            monitor.stop()
+    return result
 
 
 def _run_tempfile(cmd: str, input_data: bytes, datafile: str, packedfile: str,
@@ -312,7 +340,7 @@ def _run_tempfile(cmd: str, input_data: bytes, datafile: str, packedfile: str,
                     with open(found, "rb") as f:
                         return f.read()
         raise ExecutionError(
-            f"Tempfile decompress: no se encontró '{target_name}' en {tmpdir}"
+            f"Tempfile decompress: '{target_name}' not found in {tmpdir}"
         )
 
 # ─── Executor ────────────────────────────────────────────────────────────────
@@ -347,15 +375,39 @@ class Executor:
             current = self._apply_step(step, current, compress=False)
         return current
 
+    def compress_stream(self, chain: MethodChain,
+                        input_path: str, workdir: str) -> str:
+        """Comprime una cadena sin cargar datos a RAM.
+        Lee y escribe sólo rutas de archivo entre pasos.
+        Retorna la ruta del archivo final comprimido.
+        El caller es responsable de limpiar workdir."""
+        current_path = input_path
+        for step in chain.steps:
+            current_path = self._apply_step_file(step, current_path,
+                                                  compress=True, workdir=workdir)
+        return current_path
+
+    def decompress_stream(self, chain: MethodChain,
+                          input_path: str, workdir: str) -> str:
+        """Descomprime una cadena sin cargar datos a RAM.
+        Lee y escribe sólo rutas de archivo entre pasos.
+        Retorna la ruta del archivo final descomprimido.
+        El caller es responsable de limpiar workdir."""
+        current_path = input_path
+        for step in chain.reversed_steps():
+            current_path = self._apply_step_file(step, current_path,
+                                                  compress=False, workdir=workdir)
+        return current_path
+
     def _apply_step(self, step: MethodStep, data: bytes, compress: bool) -> bytes:
         comp_def = self.compressors.get(step.compressor)
         if comp_def is None:
-            raise ExecutionError(f"Compresor '{step.compressor}' no definido en el .ini")
+            raise ExecutionError(f"Compressor '{step.compressor}' not defined in .ini")
 
         template = comp_def.packcmd if compress else comp_def.unpackcmd
         if template is None:
             raise ExecutionError(
-                f"Compresor '{step.compressor}' no tiene "
+                f"Compressor '{step.compressor}' has no "
                 f"{'packcmd' if compress else 'unpackcmd'} definido"
             )
 
@@ -418,6 +470,9 @@ class Executor:
             if mode == "mixed":
                 result = _run_mixed(cmd, data, packedfile,
                                     passthrough=self.passthrough, monitor=monitor)
+            elif mode == "reverse_mixed":
+                result = _run_reverse_mixed(cmd, data, packedfile,
+                                            passthrough=self.passthrough, monitor=monitor)
             else:
                 result = _run_tempfile(cmd, data, datafile, packedfile,
                                        passthrough=self.passthrough, monitor=monitor,
@@ -428,3 +483,214 @@ class Executor:
                 self.global_progress.step()
 
             return result
+
+    def _apply_step_file(self, step: MethodStep, input_path: str,
+                         compress: bool, workdir: str) -> str:
+        """Como _apply_step pero entrada/salida son rutas de archivo.
+        Nunca carga el contenido completo en RAM.
+        Retorna la ruta del archivo de salida."""
+        comp_def = self.compressors.get(step.compressor)
+        if comp_def is None:
+            raise ExecutionError(f"Compressor '{step.compressor}' not defined in .ini")
+
+        template = comp_def.packcmd if compress else comp_def.unpackcmd
+        if template is None:
+            raise ExecutionError(
+                f"Compressor '{step.compressor}' has no "
+                f"{'packcmd' if compress else 'unpackcmd'} definido"
+            )
+
+        mode  = _detect_mode(template)
+        arrow = "[+]" if compress else "[-]"
+        use_monitor = self.show_progress and not self.passthrough and mode != "stdio"
+
+        # Logging + progress (mismo patrón que _apply_step)
+        _inno = getattr(self.global_progress, "innosetup", False)
+        if use_monitor:
+            if not _inno:
+                sys.stdout.write(f"[INFO] {arrow} {step.raw} ({mode})\n")
+                sys.stdout.flush()
+        else:
+            if not _inno:
+                logger.info(f"{arrow} {step.raw} ({mode})")
+        if self.global_progress is not None:
+            self.global_progress.step()
+
+        # Construir nombres de archivo de trabajo en el workdir del caller
+        import uuid as _uuid
+        uid = _uuid.uuid4().hex[:8]
+
+        # Determinar extensiones esperadas por el compresor
+        def _ext(tpl_key, default):
+            val = getattr(comp_def, tpl_key, None)
+            if val:
+                base = val.replace("$$arcpackedfile$$", "").replace("$$arcdatafile$$", "")
+                if base.startswith("."):
+                    return base
+            return default
+
+        packed_ext = _ext("packedfile", ".tmp")
+        data_ext   = _ext("datafile",   ".tmp")
+
+        datafile   = os.path.join(workdir, f"data_{uid}{data_ext}")
+        packedfile = os.path.join(workdir, f"packed_{uid}{packed_ext}")
+
+        # Reusar el archivo de entrada del paso anterior directamente
+        # según el modo de cada compresor
+        if mode in ("tempfile",):
+            if not compress:
+                # input_path = comprimido → usar como packedfile
+                # no copiar: renombrar (mismo disco, O(1))
+                if input_path != packedfile:
+                    os.replace(input_path, packedfile)
+            else:
+                if input_path != datafile:
+                    os.replace(input_path, datafile)
+        elif mode in ("mixed", "reverse_mixed"):
+            if input_path != packedfile:
+                os.replace(input_path, packedfile)
+
+        cmd = build_cmd(template, step, datafile, packedfile,
+                        extra_options=comp_def.default or "")
+
+        monitor = None
+        if use_monitor:
+            monitor = ProgressMonitor(
+                label="",
+                watch_file=None,
+                expected_size=self.expected_size,
+            )
+
+        # ── Ejecución ──
+        if mode == "stdio":
+            # stdio: leer del archivo de entrada, capturar stdout → escribir a archivo
+            with open(input_path, "rb") as fh:
+                in_data = fh.read()
+            try:
+                os.remove(input_path)
+            except OSError:
+                pass
+            clean = cmd.replace("<stdin>", "").replace("<stdout>", "").strip()
+            out_data = _run_cmd(clean, input_data=in_data,
+                                capture_stdout=True, passthrough=self.passthrough)
+            with open(datafile, "wb") as fh:
+                fh.write(out_data)
+            out_path = datafile
+
+        elif mode == "mixed":
+            # entrada stdin (leer archivo), salida → packedfile
+            with open(packedfile, "rb") as fh:
+                in_data = fh.read()
+            try:
+                os.remove(packedfile)
+            except OSError:
+                pass
+            clean = cmd.replace("<stdin>", "").replace("<stdout>", "").strip()
+            out_data = _run_cmd(clean, input_data=in_data,
+                                capture_stdout=False, passthrough=self.passthrough)
+            # resultado queda en el packedfile generado por el proceso
+            # rebuscar igual que _run_mixed
+            if not os.path.exists(packedfile):
+                raise ExecutionError(f"Mixed file-mode: compressor did not generate {packedfile}")
+            out_path = packedfile
+
+        elif mode == "reverse_mixed":
+            # entrada → packedfile (ya movido), salida stdout → datafile
+            clean = cmd.replace("<stdin>", "").replace("<stdout>", "").strip()
+            # Ajustar $$arcpackedfile$$ en cmd para apuntar al archivo ya en su lugar
+            from method import build_cmd as _bc
+            cmd2 = _bc(template, step, datafile, packedfile,
+                       extra_options=comp_def.default or "")
+            cmd2 = cmd2.replace("<stdout>", "").replace("<stdin>", "").strip()
+            if monitor:
+                monitor.watch_file = packedfile
+                monitor.start()
+            try:
+                result = _run_cmd(cmd2, input_data=None,
+                                  capture_stdout=True, passthrough=self.passthrough)
+            finally:
+                if monitor:
+                    monitor.stop()
+            try:
+                os.remove(packedfile)
+            except OSError:
+                pass
+            with open(datafile, "wb") as fh:
+                fh.write(result)
+            out_path = datafile
+
+        else:  # tempfile
+            use_cwd = (not compress
+                       and "$$arcdatafile$$" not in template
+                       and datafile not in cmd)
+            run_cwd = None
+            run_cmd = cmd
+            if use_cwd:
+                tokens = cmd.split()
+                exe = tokens[0]
+                abs_exe = os.path.abspath(exe)
+                if os.path.exists(abs_exe):
+                    run_cmd = abs_exe + cmd[len(exe):]
+                run_cwd = workdir
+
+            if monitor:
+                monitor.watch_file = packedfile if compress else datafile
+                monitor.start()
+            try:
+                _run_cmd(run_cmd, input_data=None,
+                         capture_stdout=False, passthrough=self.passthrough,
+                         cwd=run_cwd)
+            finally:
+                if monitor:
+                    monitor.stop()
+
+            # Limpiar el archivo de entrada (ya no necesario)
+            in_to_del = datafile if compress else packedfile
+            try:
+                if os.path.exists(in_to_del):
+                    os.remove(in_to_del)
+            except OSError:
+                pass
+
+            out_path_candidate = packedfile if compress else datafile
+            if os.path.exists(out_path_candidate):
+                out_path = out_path_candidate
+            else:
+                # Búsqueda recursiva — zpaqfranz extrae con el nombre original
+                # almacenado internamente, que puede diferir del nombre uid esperado
+                target_name = os.path.basename(out_path_candidate)
+                found = None
+                # Paso 1: buscar por nombre exacto
+                for root, dirs, files in os.walk(workdir):
+                    for fname in files:
+                        if fname == target_name:
+                            found = os.path.join(root, fname)
+                            break
+                    if found:
+                        break
+                # Paso 2: si no existe, encontrar cualquier archivo que no sea el packed input
+                if not found:
+                    packed_name = os.path.basename(packedfile)
+                    for root, dirs, files in os.walk(workdir):
+                        for fname in files:
+                            if fname != packed_name:
+                                found = os.path.join(root, fname)
+                                break
+                        if found:
+                            break
+                if not found:
+                    raise ExecutionError(
+                        f"File-chain: '{target_name}' not found in {workdir}")
+                # Renombrar al nombre esperado para consistencia con el siguiente paso
+                if found != out_path_candidate and os.path.dirname(found) == workdir:
+                    try:
+                        os.replace(found, out_path_candidate)
+                        found = out_path_candidate
+                    except OSError:
+                        pass
+                out_path = found
+
+        if self.global_progress is not None:
+            self.global_progress.step()
+
+        return out_path

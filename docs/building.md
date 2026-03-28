@@ -6,9 +6,11 @@
 
 ## Requirements
 
-- Python 3.10+ (x64)
-- Python 3.10+ (x86) — optional, for 32-bit build
+- Python **3.8** x64 (primary — ensures Win7 compatibility)
+- Python **3.8** x86 — optional, for 32-bit build
 - Internet connection (first run only, to download pip packages)
+
+> **Win7 compatibility note:** Python 3.9+ dropped Windows 7 support. Use Python 3.8.x for all builds if you need Win7 compatibility.
 
 ---
 
@@ -19,6 +21,7 @@ No build required:
 ```powershell
 python syc.py a backup.syc myfolder -m xpszx
 python sycg.py a backup.syc myfolder -m xpszx
+python psycg.py
 ```
 
 ---
@@ -27,9 +30,9 @@ python sycg.py a backup.syc myfolder -m xpszx
 
 `build.bat` handles everything automatically:
 
-1. Detects Python x64 and x86 installations
+1. Searches for Python 3.8 first (Win7 compatible), then newer versions
 2. Installs required pip packages
-3. Compiles `syc.exe` and `sycg.exe` for each architecture
+3. Compiles `syc.exe`, `sycg.exe`, and `psycg.exe` for each architecture
 4. Outputs all `.exe` files to `build\`
 
 ```powershell
@@ -43,27 +46,20 @@ python sycg.py a backup.syc myfolder -m xpszx
  =====================================
 
  Detecting Python installations...
-   [OK] Python x64 : C:\...\Python312\python.exe (3.12.10)
-   [OK] Python x86 : C:\...\Python312-32\python.exe (3.12.10)
-
- Installing x64 dependencies...
-   [OK] x64 ready.
- Installing x86 dependencies...
-   [OK] x86 ready.
+   [OK] Python x64 : C:\...\Python38\python.exe (3.8.20)
+   [OK] Python x86 : C:\...\Python38-32\python.exe (3.8.20)
 
  Building x64...
  -------------------------------------
-   Building syc_x64.exe ...
-   [OK] syc_x64.exe - 8 MB
-   Building sycg_x64.exe ...
-   [OK] sycg_x64.exe - 12 MB
+   Building syc_x64.exe ...     [OK] 8 MB
+   Building sycg_x64.exe ...    [OK] 12 MB
+   Building psycg_x64.exe ...   [OK] 14 MB
 
  Building x86...
  -------------------------------------
-   Building syc_x86.exe ...
-   [OK] syc_x86.exe - 7 MB
-   Building sycg_x86.exe ...
-   [OK] sycg_x86.exe - 10 MB
+   Building syc_x86.exe ...     [OK] 7 MB
+   Building sycg_x86.exe ...    [OK] 10 MB
+   Building psycg_x86.exe ...   [OK] 12 MB
 
  Done! Output in: D:\...\build
 ```
@@ -74,56 +70,60 @@ python sycg.py a backup.syc myfolder -m xpszx
 
 Download the **32-bit installer** from [python.org](https://python.org/downloads):
 
-- Select **Windows installer (32-bit)**
-- Install to a path like `C:\Users\<user>\AppData\Local\Programs\Python\Python312-32\`
+- Select **Windows installer (32-bit)** for Python 3.8.x
+- Install to a path like `C:\Users\<user>\AppData\Local\Programs\Python\Python38-32\`
 
 `build.bat` searches these locations automatically:
 
 ```
-%USERPROFILE%\AppData\Local\Programs\Python\Python312-32\
-%USERPROFILE%\AppData\Local\Programs\Python\Python311-32\
-C:\Python312-32\
-C:\Python311-32\
-C:\Program Files (x86)\Python312\
+%USERPROFILE%\AppData\Local\Programs\Python\Python38-32\
+%USERPROFILE%\AppData\Local\Programs\Python\Python38\
+C:\Python38-32\
+C:\Python38\
+C:\Program Files (x86)\Python38\
 ```
 
 ---
 
 ## psutil on x86
 
-`psutil` for x86 requires **Microsoft C++ Build Tools** to compile from source. `build.bat` handles this automatically by trying `--only-binary :all:` (prebuilt wheel). If no prebuilt wheel is available, it continues without psutil — CPU/RAM display in the help will be limited but everything else works normally.
+`psutil` for x86 requires Microsoft C++ Build Tools to compile from source. `build.bat` tries `--only-binary :all:` first (prebuilt wheel). If no wheel is available, it continues without psutil — CPU/RAM display in the help will be limited but everything else works normally.
 
 ---
 
 ## Manual Build
 
-If you prefer to build manually:
-
 ```powershell
 # x64
 pip install pyinstaller psutil pillow cryptography
-pyinstaller --onefile --name syc_x64  --icon NONE syc.py
-pyinstaller --onefile --name sycg_x64 --icon NONE sycg.py
+pyinstaller --onefile --name syc_x64   --icon NONE syc.py
+pyinstaller --onefile --name sycg_x64  --icon NONE sycg.py
+pyinstaller --onefile --name psycg_x64 --icon NONE psycg.py
 
 # x86 (from Python x86 environment)
-C:\...\Python312-32\python.exe -m pip install pyinstaller psutil pillow cryptography
-C:\...\Python312-32\python.exe -m PyInstaller --onefile --name syc_x86  --icon NONE syc.py
-C:\...\Python312-32\python.exe -m PyInstaller --onefile --name sycg_x86 --icon NONE sycg.py
+C:\...\Python38-32\python.exe -m pip install pyinstaller psutil pillow cryptography
+C:\...\Python38-32\python.exe -m PyInstaller --onefile --name syc_x86   --icon NONE syc.py
+C:\...\Python38-32\python.exe -m PyInstaller --onefile --name sycg_x86  --icon NONE sycg.py
+C:\...\Python38-32\python.exe -m PyInstaller --onefile --name psycg_x86 --icon NONE psycg.py
 ```
 
 ---
 
 ## Output Structure
 
-After building, copy the required files alongside the executables:
-
 ```
 release\
   syc.exe          ← rename syc_x64.exe or syc_x86.exe
-  sycg.exe         ← rename sycg_x64.exe or sycg_x86.exe
+  sycg.exe
+  psycg.exe
   syc.ini
-  EN.syl
-  ES.syl
+  psycg.cfg        ← auto-created on first run
+  lang\
+    EN.syl
+    ES.syl
+    FR.syl
+    PT.syl
+    RU.syl
   compressors\
     zstd.exe
     srep.exe
@@ -134,12 +134,6 @@ release\
     xtool.exe
     *.dll
 ```
-
----
-
-## GitHub Actions (Cloud Build)
-
-See [build.yml](../build.yml) for an automated GitHub Actions workflow that builds both architectures on every push.
 
 ---
 
