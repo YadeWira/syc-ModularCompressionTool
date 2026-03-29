@@ -532,8 +532,13 @@ class Executor:
         packed_ext = _ext("packedfile", ".tmp")
         data_ext   = _ext("datafile",   ".tmp")
 
-        datafile   = os.path.join(workdir, f"data_{uid}{data_ext}")
-        packedfile = os.path.join(workdir, f"packed_{uid}{packed_ext}")
+        # Use a per-step subdirectory with FIXED filenames (data.tmp / packed.ext)
+        # This is critical for compressors like zpaqfranz that store the filename
+        # internally — decompression must find exactly "data.tmp", not "data_UID.tmp"
+        step_dir = os.path.join(workdir, uid)
+        os.makedirs(step_dir, exist_ok=True)
+        datafile   = os.path.join(step_dir, f"data{data_ext}")
+        packedfile = os.path.join(step_dir, f"packed{packed_ext}")
 
         # Reusar el archivo de entrada del paso anterior directamente
         # según el modo de cada compresor
@@ -631,7 +636,7 @@ class Executor:
                 abs_exe = os.path.abspath(exe)
                 if os.path.exists(abs_exe):
                     run_cmd = abs_exe + cmd[len(exe):]
-                run_cwd = workdir
+                run_cwd = step_dir  # use step_dir so zpaqfranz extracts here
 
             if monitor:
                 monitor.watch_file = packedfile if compress else datafile
@@ -656,22 +661,20 @@ class Executor:
             if os.path.exists(out_path_candidate):
                 out_path = out_path_candidate
             else:
-                # Búsqueda recursiva — zpaqfranz extrae con el nombre original
-                # almacenado internamente, que puede diferir del nombre uid esperado
+                # Fallback search — some compressors extract to a subdir of step_dir
                 target_name = os.path.basename(out_path_candidate)
                 found = None
-                # Paso 1: buscar por nombre exacto
-                for root, dirs, files in os.walk(workdir):
+                for root, dirs, files in os.walk(step_dir):
                     for fname in files:
                         if fname == target_name:
                             found = os.path.join(root, fname)
                             break
                     if found:
                         break
-                # Paso 2: si no existe, encontrar cualquier archivo que no sea el packed input
+                # If still not found, pick any file that is not the packed input
                 if not found:
                     packed_name = os.path.basename(packedfile)
-                    for root, dirs, files in os.walk(workdir):
+                    for root, dirs, files in os.walk(step_dir):
                         for fname in files:
                             if fname != packed_name:
                                 found = os.path.join(root, fname)
@@ -680,9 +683,9 @@ class Executor:
                             break
                 if not found:
                     raise ExecutionError(
-                        f"File-chain: '{target_name}' not found in {workdir}")
-                # Renombrar al nombre esperado para consistencia con el siguiente paso
-                if found != out_path_candidate and os.path.dirname(found) == workdir:
+                        f"File-chain: '{target_name}' not found in {step_dir}")
+                # Move to expected path for next step
+                if found != out_path_candidate:
                     try:
                         os.replace(found, out_path_candidate)
                         found = out_path_candidate

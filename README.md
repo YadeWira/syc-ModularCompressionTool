@@ -2,7 +2,7 @@
 
 > **S**tream **Y**our **C**ompression — a modular, pipeline-based archiver with external compressor support.
 
-**By Yade Bravo (YadeWira)** · v0.2.0
+**By Yade Bravo (YadeWira)** · v0.2.1
 
 ---
 

@@ -449,7 +449,7 @@ def main():
             import os as _os; threads = _os.cpu_count() or 1
             cpu_str = f"CPU: {threads}T"; ram_str = ""
         arch = "x64" if struct.calcsize("P")*8 == 64 else "x86"
-        hdr = f"SYC v0.2.0 {arch} | by Yade Bravo (YadeWira) | {cpu_str}"
+        hdr = f"SYC v0.2.1 {arch} | by Yade Bravo (YadeWira) | {cpu_str}"
         if ram_str: hdr += f" | {ram_str}"
         print(hdr)
         print("""SYCG - GUI wrapper for SYC
